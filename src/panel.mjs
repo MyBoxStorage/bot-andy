@@ -91,11 +91,12 @@ function getFaturamentoPeriodo(tipo) {
   }
   return db.prepare(`
     SELECT
-      date(data_hora_inicio, 'localtime') as dia,
-      SUM(CASE WHEN status != 'cancelado' THEN servico_preco ELSE 0 END) as total,
-      COUNT(CASE WHEN status != 'cancelado' THEN 1 END) as atendimentos
-    FROM agendamentos
-    WHERE ${whereDate}
+      date(a.data_hora_inicio, 'localtime') as dia,
+      SUM(CASE WHEN a.status != 'cancelado' THEN COALESCE(s.preco, 0) ELSE 0 END) as total,
+      COUNT(CASE WHEN a.status != 'cancelado' THEN 1 END) as atendimentos
+    FROM agendamentos a
+    LEFT JOIN servicos s ON s.id = a.servico_id
+    WHERE ${whereDate.replace(/data_hora_inicio/g, 'a.data_hora_inicio')}
     GROUP BY dia
     ORDER BY dia ASC
   `).all()

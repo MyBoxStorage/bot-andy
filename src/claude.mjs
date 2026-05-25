@@ -298,6 +298,28 @@ export async function askClaude(userMessage, whatsappNumber) {
 
     if (response.stop_reason === 'end_turn') {
       finalText = response.content.find(b => b.type === 'text')?.text || 'Não consegui formular uma resposta.'
+
+      // 🛡️ Defesa anti-mentira: detecta se o bot anunciou sucesso sem ter chamado criar_agendamento.
+      // Se o texto contém palavras de fechamento E criar_agendamento NÃO foi chamado, é bug — escalar pro Andy
+      // em vez de enganar o cliente. Match case-insensitive em palavras-chave isoladas.
+      const FECHAMENTO_REGEX = /\b(fechad[oa]|agendad[oa]|confirmad[oa]|marcad[oa]|reservad[oa]|te espero|t[ôo] te esperando)\b/i
+      const anunciouSucesso = FECHAMENTO_REGEX.test(finalText)
+      const chamouTool = toolsChamadas.includes('criar_agendamento')
+      if (anunciouSucesso && !chamouTool) {
+        logError(`🚨 Bot anunciou sucesso SEM chamar criar_agendamento. Texto bloqueado: "${finalText.slice(0, 120)}"`)
+        marcarAguardandoAndy(whatsappNumber, 'mentiu_sucesso')
+        const andyPhone = getConfig('andy_phone')
+        if (andyPhone) {
+          enfileirarMensagem(
+            andyPhone,
+            `🚨 BOT MENTIU sucesso pra ${whatsappNumber} (cliente: ${cliente?.nome || '—'}). Texto que ia ser enviado: "${finalText.slice(0, 200)}". Atender manualmente.`,
+            'critica'
+          )
+        }
+        precisouHandoff = true
+        finalText = 'Brother, tive um problema técnico aqui pra fechar. Vou pedir pro Andy te responder direto pra garantir teu horário ✂️'
+      }
+
       if (HANDOFF_PATTERNS.some(p => finalText.includes(p))) {
         marcarAguardandoAndy(whatsappNumber, 'handoff_bot')
         precisouHandoff = true
