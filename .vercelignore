@@ -1,0 +1,37 @@
+# Arquivos/pastas que NÃO devem ser enviados pra Vercel
+# A Vercel só precisa do código da landing (public/) e do vercel.json
+
+# Backend (não roda na Vercel — roda local + ngrok)
+src/
+data/
+tokens/
+scripts/
+demo.mjs
+demo-chat.mjs
+ecosystem.config.cjs
+check-agendamentos.mjs
+
+# Dependências (Vercel reinstala)
+node_modules/
+package-lock.json
+
+# Configs locais
+.env
+.env.example
+.env.local
+*.log
+
+# Arquivos de desenvolvimento
+.git/
+.vscode/
+.idea/
+*.code-workspace
+
+# Documentação que não precisa no deploy
+CHATBOT.code-workspace
+CENARIO_B.md
+PROMPT_*.md
+README.md
+
+# Testes
+tests/

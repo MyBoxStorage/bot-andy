@@ -1,0 +1,21 @@
+{
+  "name": "andy-na-regua-chatbot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node demo.mjs",
+    "demo": "node demo-chat.mjs",
+    "test:scenarios": "node tests/conversation_scenarios.mjs",
+    "tunnel": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/cenario-b.ps1",
+    "vercel:deploy": "node scripts/vercel-inject-config.mjs && npx vercel --prod"
+  },
+  "dependencies": {
+    "@wppconnect-team/wppconnect": "^1.36.0",
+    "better-sqlite3": "^11.10.0",
+    "dotenv": "^16.5.0",
+    "express": "^4.18.0",
+    "googleapis": "^172.0.0",
+    "node-cron": "^4.2.1",
+    "openai": "^6.38.0"
+  }
+}

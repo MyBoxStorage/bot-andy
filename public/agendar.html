@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Agendar | Andy Na Régua — Barbearia em Balneário Camboriú</title>
+  <meta name="description" content="Agende seu horário na Andy Na Régua em Balneário Camboriú. Corte, barba e estética masculina. Confirmação instantânea no WhatsApp.">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://andy-na-regua.vercel.app/agendar">
+
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="pt_BR">
+  <meta property="og:site_name" content="Andy Na Régua">
+  <meta property="og:title" content="Agendar horário | Andy Na Régua">
+  <meta property="og:description" content="Agende online na barbearia Andy Na Régua — Balneário Camboriú. Escolha serviço, barbeiro e horário em poucos toques.">
+  <meta property="og:url" content="https://andy-na-regua.vercel.app/agendar">
+  <meta property="og:image" content="https://andy-na-regua.vercel.app/agendar/assets/og-cover.jpg">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Agendar | Andy Na Régua">
+  <meta name="twitter:description" content="Agendamento online — barbearia em Balneário Camboriú/SC.">
+  <meta name="twitter:image" content="https://andy-na-regua.vercel.app/agendar/assets/og-cover.jpg">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/config.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <script>window.__API_BASE__ = window.__API_BASE__ || '';</script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "HairSalon",
+    "name": "Andy Na Régua",
+    "description": "Barbearia em Balneário Camboriú — agendamento online",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "Rua 900, nº 41",
+      "addressLocality": "Balneário Camboriú",
+      "addressRegion": "SC",
+      "addressCountry": "BR"
+    },
+    "url": "https://andy-na-regua.vercel.app/agendar"
+  }
+  </script>
+  <style>
+    [x-cloak] { display: none !important; }
+    body { font-family: 'Inter', system-ui, sans-serif; }
+  </style>
+</head>
+<body class="bg-[#0a0a0a] text-[#fafafa] min-h-screen pb-28" x-data="agendamento()" x-cloak>
+
+  <header class="fixed top-0 inset-x-0 z-50 bg-[#0a0a0a]/95 backdrop-blur border-b border-white/5">
+    <div class="max-w-lg mx-auto px-4 h-14 flex items-center gap-2">
+      <span class="w-9 h-9 rounded-xl bg-[#d4af37]/15 flex items-center justify-center text-lg">✂️</span>
+      <div>
+        <p class="font-semibold text-sm leading-tight">Andy Na Régua</p>
+        <p class="text-[10px] text-[#999] uppercase tracking-wider">Agendamento online</p>
+      </div>
+      <button type="button" x-show="passo > 1 && passo < 5" @click="voltar()" class="ml-auto text-sm text-[#d4af37]">Voltar</button>
+    </div>
+    <div class="max-w-lg mx-auto px-4 pb-2">
+      <div class="flex gap-1">
+        <template x-for="i in 4" :key="i">
+          <div class="h-0.5 flex-1 rounded-full transition-colors" :class="passo >= i ? 'bg-[#d4af37]' : 'bg-white/10'"></div>
+        </template>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-lg mx-auto px-4 pt-24 space-y-4">
+
+    <!-- Passo 1: Serviços -->
+    <section x-show="passo === 1" x-transition.opacity>
+      <h1 class="text-xl font-bold mb-1">Escolha o serviço</h1>
+      <p class="text-sm text-[#999] mb-4">Preços e duração estimada</p>
+      <template x-if="carregando">
+        <p class="text-[#999] text-sm py-8 text-center">Carregando serviços…</p>
+      </template>
+      <template x-for="cat in categoriasOrdenadas" :key="cat">
+        <p class="text-xs uppercase tracking-widest text-[#d4af37] font-semibold mt-4 mb-2" x-text="labelCategoria(cat)"></p>
+        <div class="grid gap-2">
+          <template x-for="s in servicosPorCategoria(cat)" :key="s.id">
+            <button type="button" @click="escolherServico(s)"
+              class="w-full text-left bg-[#1a1a1a] border border-white/5 rounded-2xl p-4 min-h-[72px] hover:border-[#d4af37]/40 active:scale-[.98] transition">
+              <div class="flex justify-between items-start gap-2">
+                <span class="font-medium" x-text="s.name"></span>
+                <span class="text-[#d4af37] font-semibold shrink-0" x-text="formatPreco(s.price)"></span>
+              </div>
+              <p class="text-xs text-[#999] mt-1" x-text="s.durationMinutes + ' min'"></p>
+            </button>
+          </template>
+        </div>
+      </template>
+    </section>
+
+    <!-- Passo 2: Barbeiro -->
+    <section x-show="passo === 2" x-transition.opacity>
+      <h2 class="text-xl font-bold mb-1">Escolha o barbeiro</h2>
+      <p class="text-sm text-[#999] mb-4">Recomendamos qualquer disponível</p>
+      <button type="button" @click="barbeiroEscolhido = null; passo = 3"
+        class="w-full bg-[#d4af37]/10 border-2 border-[#d4af37] rounded-2xl p-4 mb-3 min-h-[72px] text-left">
+        <p class="font-semibold text-[#d4af37]">Qualquer barbeiro disponível</p>
+        <p class="text-xs text-[#999] mt-1">Primeiro horário livre entre a equipe</p>
+      </button>
+      <template x-for="b in barbeiros" :key="b.id">
+        <button type="button" @click="barbeiroEscolhido = b; passo = 3"
+          class="w-full flex items-center gap-3 bg-[#1a1a1a] border border-white/5 rounded-2xl p-4 mb-2 min-h-[72px] hover:border-[#d4af37]/30 transition">
+          <span class="w-12 h-12 rounded-full bg-[#252525] flex items-center justify-center text-lg font-bold text-[#d4af37]" x-text="iniciais(b.name)"></span>
+          <div class="text-left">
+            <p class="font-medium" x-text="b.name"></p>
+            <p class="text-xs text-[#999]">Barbeiro profissional</p>
+          </div>
+        </button>
+      </template>
+    </section>
+
+    <!-- Passo 3: Data e horário -->
+    <section x-show="passo === 3" x-transition.opacity>
+      <h2 class="text-xl font-bold mb-1">Data e horário</h2>
+      <p class="text-sm text-[#999] mb-3" x-show="servicoEscolhido">
+        <span x-text="servicoEscolhido?.name"></span> · <span x-text="servicoEscolhido?.durationMinutes + ' min'"></span>
+      </p>
+      <div class="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+        <template x-for="d in diasDisponiveis" :key="d.iso">
+          <button type="button" @click="selecionarData(d.iso)"
+            class="shrink-0 min-w-[4.5rem] py-3 px-2 rounded-2xl border text-center min-h-[48px] transition"
+            :class="dataEscolhida === d.iso ? 'border-[#d4af37] bg-[#d4af37]/10' : 'border-white/10 bg-[#1a1a1a]'">
+            <p class="text-[10px] uppercase text-[#999]" x-text="d.dow"></p>
+            <p class="font-semibold text-sm" x-text="d.label"></p>
+          </button>
+        </template>
+      </div>
+      <p class="text-xs text-[#666] mt-2 mb-3">Domingo fechado · horários em horário de Brasília</p>
+
+      <template x-if="carregandoSlots">
+        <p class="text-center text-[#999] py-6 text-sm">Buscando horários…</p>
+      </template>
+      <template x-if="!carregandoSlots && dataEscolhida && slots.length === 0">
+        <p class="text-center text-[#999] py-6 text-sm">Nenhum horário livre neste dia. Tente outra data.</p>
+      </template>
+      <div class="grid grid-cols-3 gap-2" x-show="slots.length">
+        <template x-for="sl in slots" :key="sl.start + (sl.staffId||'')">
+          <button type="button" @click="slotEscolhido = sl; passo = 4"
+            class="min-h-[48px] rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-medium text-sm hover:bg-emerald-500/20 transition">
+            <span x-text="sl.label"></span>
+            <span class="block text-[9px] text-[#999] font-normal truncate" x-show="!barbeiroEscolhido" x-text="sl.staffName"></span>
+          </button>
+        </template>
+      </div>
+    </section>
+
+    <!-- Passo 4: Dados -->
+    <section x-show="passo === 4" x-transition.opacity>
+      <h2 class="text-xl font-bold mb-1">Seus dados</h2>
+      <p class="text-sm text-[#999] mb-4">Enviamos a confirmação no WhatsApp</p>
+      <div class="bg-[#1a1a1a] rounded-2xl p-4 mb-4 border border-white/5 text-sm space-y-1">
+        <p><span class="text-[#999]">Serviço:</span> <span x-text="servicoEscolhido?.name"></span></p>
+        <p><span class="text-[#999]">Horário:</span> <span x-text="resumoHorario()"></span></p>
+        <p x-show="slotEscolhido?.staffName"><span class="text-[#999]">Barbeiro:</span> <span x-text="slotEscolhido?.staffName"></span></p>
+      </div>
+      <label class="block mb-3">
+        <span class="text-xs text-[#999] uppercase tracking-wide">Nome completo</span>
+        <input type="text" x-model="nome" required autocomplete="name"
+          class="mt-1 w-full bg-[#1a1a1a] border border-white/10 rounded-2xl px-4 py-3 min-h-[48px] focus:border-[#d4af37] outline-none">
+      </label>
+      <label class="block mb-4">
+        <span class="text-xs text-[#999] uppercase tracking-wide">WhatsApp</span>
+        <input type="tel" inputmode="numeric" x-model="whatsapp" @input="mascararWhatsapp()"
+          placeholder="(47) 99999-9999" autocomplete="tel"
+          class="mt-1 w-full bg-[#1a1a1a] border border-white/10 rounded-2xl px-4 py-3 min-h-[48px] focus:border-[#d4af37] outline-none">
+      </label>
+      <p x-show="erro" class="text-red-400 text-sm mb-3" x-text="erro"></p>
+      <button type="button" @click="confirmar()" :disabled="enviando || !formValido()"
+        class="w-full min-h-[52px] rounded-2xl bg-[#d4af37] text-black font-semibold text-base disabled:opacity-40 transition active:scale-[.98]">
+        <span x-text="enviando ? 'Confirmando…' : 'Confirmar agendamento'"></span>
+      </button>
+    </section>
+
+    <!-- Passo 5: Confirmação -->
+    <section x-show="passo === 5" x-transition.opacity class="text-center py-6">
+      <div class="text-6xl mb-4">✅</div>
+      <h2 class="text-2xl font-bold mb-2">Agendado!</h2>
+      <p class="text-[#999] text-sm mb-6">Mandamos a confirmação no seu WhatsApp também.</p>
+      <div class="bg-[#1a1a1a] rounded-2xl p-5 border border-white/5 text-left text-sm space-y-2 mb-6" x-show="agendamentoOk">
+        <p><span class="text-[#999]">Serviço:</span> <span x-text="agendamentoOk?.servico_nome"></span></p>
+        <p><span class="text-[#999]">Quando:</span> <span x-text="agendamentoOk?.data_label"></span> às <span x-text="agendamentoOk?.hora_label"></span></p>
+        <p><span class="text-[#999]">Barbeiro:</span> <span x-text="agendamentoOk?.staff_nome"></span></p>
+      </div>
+      <div class="flex flex-col gap-2">
+        <button type="button" @click="reset()" class="w-full min-h-[48px] rounded-2xl border border-[#d4af37] text-[#d4af37] font-medium">Fazer outro agendamento</button>
+        <a href="https://maps.google.com/?q=Rua+900+41+Balneário+Camboriú" target="_blank" rel="noopener"
+          class="w-full min-h-[48px] rounded-2xl bg-[#1a1a1a] border border-white/10 flex items-center justify-center font-medium">Ver no mapa</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="fixed bottom-0 inset-x-0 bg-[#0a0a0a]/95 border-t border-white/5 py-3 px-4 text-center text-xs text-[#999]">
+    <p>Rua 900, nº 41 (Antigo China Center) — Balneário Camboriú/SC</p>
+    <a href="https://instagram.com/andynaregua" target="_blank" rel="noopener" class="text-[#d4af37]">@andynaregua</a>
+  </footer>
+
+  <script>
+    const API = () => (window.__API_BASE__ || '').replace(/\/$/, '')
+
+    function apiHeaders(extra = {}) {
+      const h = { ...extra }
+      if (API().includes('ngrok')) h['ngrok-skip-browser-warning'] = 'true'
+      return h
+    }
+
+    async function apiFetch(path, opts = {}) {
+      const headers = apiHeaders(opts.headers || {})
+      if (opts.body && !headers['content-type']) headers['content-type'] = 'application/json'
+      return fetch(`${API()}${path}`, { ...opts, headers })
+    }
+
+    document.addEventListener('alpine:init', () => {
+      Alpine.data('agendamento', () => ({
+        passo: 1,
+        servicos: [],
+        barbeiros: [],
+        slots: [],
+        servicoEscolhido: null,
+        barbeiroEscolhido: null,
+        dataEscolhida: null,
+        slotEscolhido: null,
+        nome: '',
+        whatsapp: '',
+        enviando: false,
+        erro: null,
+        carregando: true,
+        carregandoSlots: false,
+        agendamentoOk: null,
+
+        async init() {
+          try {
+            const [s, b] = await Promise.all([
+              apiFetch('/api/servicos').then(r => r.json()),
+              apiFetch('/api/barbeiros').then(r => r.json()),
+            ])
+            this.servicos = s.servicos || []
+            this.barbeiros = b.barbeiros || []
+          } catch (e) {
+            this.erro = 'Não foi possível carregar. Tente novamente em instantes.'
+          } finally {
+            this.carregando = false
+          }
+        },
+
+        get diasDisponiveis() {
+          const out = []
+          const tz = 'America/Sao_Paulo'
+          let d = new Date()
+          d.setHours(12, 0, 0, 0)
+          while (out.length < 7) {
+            const dow = d.getDay()
+            if (dow !== 0) {
+              const iso = d.toLocaleDateString('en-CA', { timeZone: tz })
+              out.push({
+                iso,
+                label: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: tz }),
+                dow: d.toLocaleDateString('pt-BR', { weekday: 'short', timeZone: tz }).replace('.', ''),
+              })
+            }
+            d.setDate(d.getDate() + 1)
+          }
+          return out
+        },
+
+        get categoriasOrdenadas() {
+          const order = ['cabelo', 'barba', 'estetica']
+          const cats = [...new Set(this.servicos.map(s => s.category || 'cabelo'))]
+          return order.filter(c => cats.includes(c)).concat(cats.filter(c => !order.includes(c)))
+        },
+
+        labelCategoria(cat) {
+          return { cabelo: 'Cabelo', barba: 'Barba', estetica: 'Estética' }[cat] || cat
+        },
+
+        servicosPorCategoria(cat) {
+          return this.servicos.filter(s => (s.category || 'cabelo') === cat)
+        },
+
+        formatPreco(v) {
+          return 'R$ ' + Number(v).toFixed(0).replace('.', ',')
+        },
+
+        iniciais(n) {
+          return (n || '?').split(' ').map(x => x[0]).slice(0, 2).join('').toUpperCase()
+        },
+
+        escolherServico(s) {
+          this.servicoEscolhido = s
+          this.passo = 2
+        },
+
+        voltar() {
+          if (this.passo === 4) this.passo = 3
+          else if (this.passo === 3) this.passo = this.barbeiroEscolhido ? 2 : 2
+          else if (this.passo === 2) this.passo = 1
+          else this.passo = Math.max(1, this.passo - 1)
+        },
+
+        async selecionarData(iso) {
+          this.dataEscolhida = iso
+          this.slotEscolhido = null
+          await this.carregarSlots()
+        },
+
+        async carregarSlots() {
+          if (!this.servicoEscolhido || !this.dataEscolhida) return
+          this.carregandoSlots = true
+          this.slots = []
+          try {
+            const staffId = this.barbeiroEscolhido?.id || 'qualquer'
+            const q = `data=${this.dataEscolhida}&servico_id=${this.servicoEscolhido.id}&staff_id=${staffId}`
+            const r = await apiFetch(`/api/disponibilidade?${q}`)
+            const d = await r.json()
+            this.slots = d.slots || []
+          } catch (e) {
+            this.erro = 'Erro ao buscar horários.'
+          } finally {
+            this.carregandoSlots = false
+          }
+        },
+
+        mascararWhatsapp() {
+          let d = this.whatsapp.replace(/\D/g, '').slice(0, 11)
+          if (d.length <= 2) this.whatsapp = d ? `(${d}` : ''
+          else if (d.length <= 7) this.whatsapp = `(${d.slice(0, 2)}) ${d.slice(2)}`
+          else this.whatsapp = `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+        },
+
+        whatsappValido() {
+          const d = this.whatsapp.replace(/\D/g, '')
+          return d.length === 10 || d.length === 11
+        },
+
+        formValido() {
+          return this.nome.trim().length >= 2 && this.whatsappValido() && this.slotEscolhido
+        },
+
+        resumoHorario() {
+          if (!this.slotEscolhido) return ''
+          const d = this.dataEscolhida?.split('-').reverse().join('/')
+          return `${d} às ${this.slotEscolhido.label}`
+        },
+
+        async confirmar() {
+          if (!this.formValido()) return
+          this.enviando = true
+          this.erro = null
+          try {
+            const body = {
+              nome: this.nome.trim(),
+              whatsapp: this.whatsapp.replace(/\D/g, ''),
+              servico_id: this.servicoEscolhido.id,
+              staff_id: this.slotEscolhido.staffId,
+              start_iso: this.slotEscolhido.start,
+            }
+            const r = await apiFetch('/api/agendar', {
+              method: 'POST',
+              body: JSON.stringify(body),
+            })
+            const d = await r.json()
+            if (!r.ok) {
+              const msg = d.erro || 'erro'
+              if (r.status === 409) throw new Error('Ih, esse horário acabou de ser preenchido. Escolha outro abaixo.')
+              throw new Error(msg)
+            }
+            this.agendamentoOk = d.agendamento
+            this.passo = 5
+          } catch (e) {
+            this.erro = e.message
+            if (e.message.includes('preenchido')) {
+              this.passo = 3
+              await this.carregarSlots()
+            }
+          } finally {
+            this.enviando = false
+          }
+        },
+
+        reset() {
+          this.passo = 1
+          this.servicoEscolhido = null
+          this.barbeiroEscolhido = null
+          this.dataEscolhida = null
+          this.slotEscolhido = null
+          this.nome = ''
+          this.whatsapp = ''
+          this.erro = null
+          this.agendamentoOk = null
+          this.slots = []
+        },
+      }))
+    })
+  </script>
+</body>
+</html>
