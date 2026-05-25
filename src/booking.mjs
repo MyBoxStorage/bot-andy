@@ -28,11 +28,15 @@ function corsMiddleware(req, res, next) {
     .map(s => s.trim())
     .filter(Boolean)
   const origin = req.headers.origin
-  if (origin && allowed.includes(origin)) {
+  // Aceita: (a) origens explícitas em PUBLIC_BOOKING_ORIGINS, (b) qualquer subdomínio *.vercel.app
+  // O (b) cobre os deploys de preview da Vercel que mudam de URL a cada commit.
+  const isAllowed = origin && (allowed.includes(origin) || /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin))
+  if (isAllowed) {
     res.setHeader('Access-Control-Allow-Origin', origin)
     res.setHeader('Vary', 'Origin')
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, ngrok-skip-browser-warning')
+    res.setHeader('Access-Control-Max-Age', '600')
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204)
   next()
