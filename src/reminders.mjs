@@ -243,21 +243,38 @@ Mensagem do cliente: "${texto}"`
 }
 
 export function initReminders() {
-  cron.schedule('* * * * *', processarFilaProativa, { timezone: 'America/Sao_Paulo' })
+  // Modo silencioso: se env BOT_MODO_SILENCIOSO=1, jobs proativos ficam desligados
+  // (fila proativa, lembretes, follow-ups, reativação). Bot continua respondendo
+  // mensagens recebidas normalmente. Ideal para testes/QA sem spammar clientes reais.
+  const modoSilencioso = process.env.BOT_MODO_SILENCIOSO === '1'
+  if (modoSilencioso) {
+    log('🔇 MODO SILENCIOSO ativo — jobs proativos desligados. Bot só responde a mensagens recebidas.')
+    return
+  }
 
-  cron.schedule('*/5 * * * *', async () => {
-    await jobLembretes()
-    await jobCancelamentosAutomaticos()
-    await jobUpsellPosServico()
-    await jobNotificarFila()
-    await jobFeedback()
-    await jobFollowUpHandoff()
-  }, { timezone: 'America/Sao_Paulo' })
+  // Delay de 60s antes do primeiro disparo dos jobs cron. Evita que ao reiniciar o
+  // servidor mensagens pendentes sejam reenfileiradas imediatamente.
+  const DELAY_INICIAL_MS = 60_000
 
-  cron.schedule('0 10,11 * * 2-5', jobReativacao, { timezone: 'America/Sao_Paulo' })
-  cron.schedule('0 3 * * *', jobLimpezaDiaria, { timezone: 'America/Sao_Paulo' })
+  setTimeout(() => {
+    cron.schedule('* * * * *', processarFilaProativa, { timezone: 'America/Sao_Paulo' })
 
-  log('⏰ Sistema de lembretes iniciado (cron a cada 5 min + reativação ter-sex 10-12h + limpeza 3h)')
+    cron.schedule('*/5 * * * *', async () => {
+      await jobLembretes()
+      await jobCancelamentosAutomaticos()
+      await jobUpsellPosServico()
+      await jobNotificarFila()
+      await jobFeedback()
+      await jobFollowUpHandoff()
+    }, { timezone: 'America/Sao_Paulo' })
+
+    cron.schedule('0 10,11 * * 2-5', jobReativacao, { timezone: 'America/Sao_Paulo' })
+    cron.schedule('0 3 * * *', jobLimpezaDiaria, { timezone: 'America/Sao_Paulo' })
+
+    log('⏰ Sistema de lembretes ativo após delay inicial (cron a cada 5 min + reativação ter-sex 10-12h + limpeza 3h)')
+  }, DELAY_INICIAL_MS)
+
+  log(`⏳ Aguardando ${DELAY_INICIAL_MS / 1000}s antes de ativar jobs proativos (anti-spam no restart)`)
 }
 
 export { jobNotificarFila }

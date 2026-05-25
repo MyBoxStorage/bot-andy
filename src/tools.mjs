@@ -197,6 +197,23 @@ export async function criarAgendamentoTool({ whatsapp_number, cliente_nome, staf
     const servico = getServico(servico_id)
     if (!servico) return { sucesso: false, erro: `Serviço "${servico_id}" não encontrado.` }
 
+    // Resolve "qualquer" para um barbeiro real e disponível no horário pedido.
+    if (staff_id === 'qualquer' || !staff_id) {
+      const barbeirosAtivos = staff.filter(s => s.active).map(s => s.id)
+      let staffEscolhido = null
+      for (const sid of barbeirosAtivos) {
+        if (await isSlotAvailable(sid, start_iso, servico.duracao_minutos)) {
+          staffEscolhido = sid
+          break
+        }
+      }
+      if (!staffEscolhido) {
+        return { sucesso: false, erro: 'Nenhum barbeiro disponível nesse horário.' }
+      }
+      staff_id = staffEscolhido
+      log(`staff_id="qualquer" resolvido para "${staff_id}"`)
+    }
+
     const cliente = getCliente(whatsapp_number)
     if (cliente?.confirmacao_rigorosa) {
       const valorSinal = (servico.preco * 0.5).toFixed(2)
@@ -347,6 +364,32 @@ export function consultarServicos() {
     return { servicos: servicos.map(s => ({ id: s.id, nome: s.nome, preco: s.preco, duracao_minutos: s.duracao_minutos })) }
   } catch (err) {
     return { erro: 'Erro ao buscar serviços.' }
+  }
+}
+
+// ── Tool: consultar_produtos ──────────────────────────────────────
+export function consultarProdutos({ categoria } = {}) {
+  try {
+    let produtos = getProdutosEmEstoque()
+    if (categoria) {
+      produtos = produtos.filter(p => (p.categoria || '').toLowerCase() === String(categoria).toLowerCase())
+    }
+    if (!produtos.length) {
+      return { produtos: [], aviso: 'Nenhum produto em estoque' + (categoria ? ` na categoria ${categoria}` : '') + ' no momento.' }
+    }
+    return {
+      produtos: produtos.map(p => ({
+        id:         p.id,
+        nome:       p.nome,
+        descricao:  p.descricao,
+        preco:      p.preco,
+        categoria:  p.categoria,
+        em_estoque: p.estoque > 0,
+      })),
+    }
+  } catch (err) {
+    logError('consultarProdutos erro:', err)
+    return { erro: 'Erro ao buscar produtos.' }
   }
 }
 

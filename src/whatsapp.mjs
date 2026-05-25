@@ -115,11 +115,33 @@ export function createExpressApp() {
   return app
 }
 
+// ── Fila por número (concurrency control) ───────────────────────
+// Garante que mensagens do mesmo cliente sejam processadas em ordem, uma de cada vez.
+// Sem isso, 2 mensagens rápidas do mesmo número podem rodar em paralelo e o histórico
+// é corrompido (uma sobrescreve a outra). Cada número tem sua própria fila, mas números
+// diferentes continuam processando em paralelo (escalável).
+const filasPorNumero = new Map()
+
+function enfileirarPorNumero(userPhone, tarefa) {
+  const filaAtual = filasPorNumero.get(userPhone) || Promise.resolve()
+  const novaFila = filaAtual.then(tarefa).catch(err => logError(`Erro na fila de ${userPhone}:`, err))
+  filasPorNumero.set(userPhone, novaFila)
+  // Limpa a referência quando terminar (evita memory leak)
+  novaFila.finally(() => {
+    if (filasPorNumero.get(userPhone) === novaFila) filasPorNumero.delete(userPhone)
+  })
+  return novaFila
+}
+
 async function handleIncomingMessage(message) {
   if (message.isGroupMsg)              return
   if (message.from === 'status@broadcast') return
   if (message.fromMe)                  return
+  // Serializa por número — evita respostas trocadas em conversas paralelas
+  return enfileirarPorNumero(message.from, () => processarMensagem(message))
+}
 
+async function processarMensagem(message) {
   const userPhone = message.from
   const tipo      = message.type
 

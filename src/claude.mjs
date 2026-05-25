@@ -4,6 +4,7 @@ import {
   cancelarAgendamentoTool,
   listarAgendamentosCliente,
   consultarServicos,
+  consultarProdutos,
   adicionarFilaEsperaTool,
   resumirPerfilCliente,
   registrarInteresseProdutoTool,
@@ -44,6 +45,19 @@ const TOOLS = [
     name: 'consultar_servicos',
     description: `Retorna lista de serviços ativos com id, nome, preço e duração. Chame quando precisar resolver o servico_id exato antes de outra tool, ou quando o cliente pedir o catálogo. Não chame se o serviço pedido já mapeia direto (ex: "corte" → "corte").`,
     input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'consultar_produtos',
+    description: `Retorna lista de produtos em estoque com id, nome, descrição, preço e categoria. **OBRIGATÓRIA** sempre que o cliente perguntar sobre produtos (pomada, cera, shampoo, óleo, minoxidil, etc.) ou pedir recomendação. NUNCA invente nomes ou preços — só use o que esta tool retornar. Pode filtrar por categoria opcional ("finalizador-cabelo", "cuidado-barba", "cuidado-cabelo", "crescimento").`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        categoria: {
+          type: 'string',
+          description: 'Filtro opcional. Omita para ver todos.',
+        },
+      },
+    },
   },
   {
     name: 'resumir_perfil_cliente',
@@ -159,6 +173,7 @@ async function executeTool(toolName, toolInput, whatsappNumber) {
   const input = { ...toolInput, whatsapp_number: whatsappNumber }
   switch (toolName) {
     case 'consultar_servicos':           return consultarServicos()
+    case 'consultar_produtos':           return consultarProdutos(input)
     case 'resumir_perfil_cliente':         return resumirPerfilCliente(input)
     case 'verificar_disponibilidade':    return await verificarDisponibilidade(input)
     case 'criar_agendamento':            return await criarAgendamentoTool(input)
@@ -300,12 +315,17 @@ export async function askClaude(userMessage, whatsappNumber) {
       finalText = response.content.find(b => b.type === 'text')?.text || 'Não consegui formular uma resposta.'
 
       // 🛡️ Defesa anti-mentira: detecta se o bot anunciou sucesso sem ter chamado criar_agendamento.
-      // Se o texto contém palavras de fechamento E criar_agendamento NÃO foi chamado, é bug — escalar pro Andy
-      // em vez de enganar o cliente. Match case-insensitive em palavras-chave isoladas.
-      const FECHAMENTO_REGEX = /\b(fechad[oa]|agendad[oa]|confirmad[oa]|marcad[oa]|reservad[oa]|te espero|t[ôo] te esperando)\b/i
-      const anunciouSucesso = FECHAMENTO_REGEX.test(finalText)
+      // Regra: só dispara se a palavra de fechamento aparecer em uma FRASE AFIRMATIVA (sem "?" depois).
+      // Textos como "Fechado, X com Y. Vou reservar?" são perguntas legítimas pedindo última confirmação.
+      const FECHAMENTO_PALAVRAS = /\b(fechad[oa]|agendad[oa]|confirmad[oa]|marcad[oa]|reservad[oa]|te espero|t[ôo] te esperando)\b/i
       const chamouTool = toolsChamadas.includes('criar_agendamento')
-      if (anunciouSucesso && !chamouTool) {
+      let anunciouSucesso = false
+      if (!chamouTool && FECHAMENTO_PALAVRAS.test(finalText)) {
+        // Divide em sentenças e checa se alguma sentença que CONTÉM a palavra de fechamento NÃO termina com "?".
+        const frases = finalText.split(/(?<=[.!?])\s+/)
+        anunciouSucesso = frases.some(f => FECHAMENTO_PALAVRAS.test(f) && !f.trim().endsWith('?'))
+      }
+      if (anunciouSucesso) {
         logError(`🚨 Bot anunciou sucesso SEM chamar criar_agendamento. Texto bloqueado: "${finalText.slice(0, 120)}"`)
         marcarAguardandoAndy(whatsappNumber, 'mentiu_sucesso')
         const andyPhone = getConfig('andy_phone')
