@@ -22,11 +22,6 @@ const CATEGORY_LABELS = {
   estetica: 'Estética',
 }
 
-function isDomingo(dateStr) {
-  const d = new Date(`${dateStr}T12:00:00-03:00`)
-  return d.getDay() === 0
-}
-
 function corsMiddleware(req, res, next) {
   const allowed = (process.env.PUBLIC_BOOKING_ORIGINS || '')
     .split(',')
@@ -65,6 +60,17 @@ bookingRouter.get('/api/barbeiros', (req, res) => {
   })
 })
 
+// GET /api/horario-funcionamento
+// Single source of truth para dias abertos/fechados — usado pelo front pra montar o seletor de datas.
+bookingRouter.get('/api/horario-funcionamento', (req, res) => {
+  res.json({
+    openDays:   schedule.openDays,
+    closedDays: schedule.closedDays,
+    openTime:   schedule.openTime,
+    closeTime:  schedule.closeTime,
+  })
+})
+
 // GET /api/disponibilidade?data=YYYY-MM-DD&servico_id=&staff_id=qualquer
 bookingRouter.get('/api/disponibilidade', async (req, res) => {
   try {
@@ -72,7 +78,8 @@ bookingRouter.get('/api/disponibilidade', async (req, res) => {
     if (!data || !servico_id) {
       return res.status(400).json({ erro: 'parâmetros faltando' })
     }
-    if (isDomingo(data) || schedule.closedDays.includes(new Date(`${data}T12:00:00-03:00`).getDay())) {
+    const dow = new Date(`${data}T12:00:00-03:00`).getDay()
+    if (!schedule.openDays.includes(dow)) {
       return res.json({ slots: [] })
     }
 

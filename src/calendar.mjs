@@ -1,6 +1,6 @@
 import { google }   from 'googleapis'
 import { getConfig } from './db.mjs'
-import { staff, BUFFER_MINUTES, timezone } from './config.mjs'
+import { staff, schedule, BUFFER_MINUTES, timezone } from './config.mjs'
 import { log, error as logError } from './logger.mjs'
 
 // ── OAuth client ─────────────────────────────────────────────────
@@ -117,10 +117,10 @@ export async function isSlotAvailable(staffId, startISO, durationMinutes) {
 // respeitando: horário de funcionamento, almoço, buffer e eventos existentes.
 export async function findFreeSlots(staffId, date, durationMinutes) {
   try {
-    const openTime   = getConfig('horario_abertura')       || '09:00'
-    const closeTime  = getConfig('horario_fechamento')     || '19:00'
-    const lunchStart = getConfig('horario_almoco_inicio')  || '12:00'
-    const lunchEnd   = getConfig('horario_almoco_fim')     || '13:00'
+    const openTime   = getConfig('horario_abertura')       || schedule.openTime
+    const closeTime  = getConfig('horario_fechamento')     || schedule.closeTime
+    const lunchStart = getConfig('horario_almoco_inicio')  || schedule.lunchStart
+    const lunchEnd   = getConfig('horario_almoco_fim')     || schedule.lunchEnd
 
     // Monta datas em UTC-3 (Brasília)
     const toLocal = (h, m) => new Date(`${date}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00-03:00`)

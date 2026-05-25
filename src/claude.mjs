@@ -42,12 +42,12 @@ const HANDOFF_PATTERNS = [
 const TOOLS = [
   {
     name: 'consultar_servicos',
-    description: `Retorna lista completa de serviços com IDs, nomes, preços e durações. CHAME quando: cliente perguntar quais serviços existem, OU quando você precisar do servico_id exato pra usar em verificar_disponibilidade. NÃO CHAME se o cliente já informou um serviço óbvio (ex: "corte" → servico_id "corte" sem precisar consultar).`,
+    description: `Retorna lista de serviços ativos com id, nome, preço e duração. Chame quando precisar resolver o servico_id exato antes de outra tool, ou quando o cliente pedir o catálogo. Não chame se o serviço pedido já mapeia direto (ex: "corte" → "corte").`,
     input_schema: { type: 'object', properties: {} },
   },
   {
     name: 'resumir_perfil_cliente',
-    description: `Busca o histórico do cliente: barbeiro favorito, serviço habitual, última visita, no-shows, produtos de interesse. CHAME APENAS UMA VEZ por conversa, na primeira mensagem após identificar o cliente. NÃO CHAME se for cliente novo (sem nome cadastrado). Use o resultado pra personalizar a abordagem.`,
+    description: `Busca perfil do cliente (barbeiro favorito, serviço habitual, última visita, no-shows, produtos de interesse). Chame uma única vez por conversa, na primeira mensagem de cliente já cadastrado. Não chame para cliente novo.`,
     input_schema: {
       type: 'object',
       properties: { whatsapp_number: { type: 'string' } },
@@ -56,7 +56,7 @@ const TOOLS = [
   },
   {
     name: 'verificar_disponibilidade',
-    description: `Verifica horários disponíveis no Google Calendar. CHAME sempre que precisar confirmar se um horário está livre, ANTES de criar agendamento. Pode passar horario=null pra ver todos os slots do dia. NÃO CHAME se ainda falta o servico_id ou a data — colete primeiro.`,
+    description: `Consulta horários livres no Google Calendar. Obrigatória antes de qualquer confirmação de horário e antes de chamar criar_agendamento. Para listar todos os slots do dia, omita o campo "horario" (não envie a string "null"). Não chame se ainda faltam servico_id ou data — colete primeiro.`,
     input_schema: {
       type: 'object',
       properties: {
@@ -70,7 +70,7 @@ const TOOLS = [
   },
   {
     name: 'criar_agendamento',
-    description: `Cria o agendamento no Calendar e banco. CHAME quando tem serviço+dia+hora+barbeiro+nome todos coletados E o cliente sinalizou confirmação (disse o NOME após você pedir, OU respondeu "sim"/"ok"/"fecha"/"fechado"/"blz"/"beleza"/"pode ser"/"confirma" após você apresentar resumo). NÃO peça 2ª confirmação — chame DIRETO. **NUNCA pergunte WhatsApp, telefone ou número de contato do cliente** — o sistema preenche whatsapp_number automaticamente, você PODE passar string vazia "". Se confirmacao_rigorosa=true no perfil, NÃO CHAME — exija sinal Pix antes.`,
+    description: `Cria o agendamento no Google Calendar e no banco. Gatilhos: cliente disse o nome após você pedir, OU respondeu "sim/fecha/ok/blz/beleza/pode ser/confirma" após o resumo. Chame direto — sem pedir 2ª confirmação. Se o perfil tiver confirmacao_rigorosa=true, NÃO chame: exija sinal Pix primeiro. O campo whatsapp_number é injetado pelo sistema — pode passar "".`,
     input_schema: {
       type: 'object',
       properties: {
@@ -85,7 +85,7 @@ const TOOLS = [
   },
   {
     name: 'cancelar_agendamento',
-    description: `Cancela agendamento. CHAME após cliente confirmar qual quer cancelar. Se cliente não especificou e tem múltiplos, passe agendamento_id=0 — a tool retorna a lista pra você apresentar.`,
+    description: `Cancela um agendamento futuro do cliente. Chame após o cliente confirmar qual cancelar. Se houver múltiplos e o cliente não especificou, passe agendamento_id=0 — a tool devolve a lista para você apresentar.`,
     input_schema: {
       type: 'object',
       properties: {
@@ -106,7 +106,7 @@ const TOOLS = [
   },
   {
     name: 'adicionar_fila_espera',
-    description: `Adiciona à fila de espera de um horário ocupado. CHAME quando: horário desejado está cheio E o cliente concordou explicitamente em entrar na fila. Cliente é notificado se vaga abrir.`,
+    description: `Adiciona o cliente à fila de espera de um horário ocupado. Chame apenas após o cliente concordar explicitamente ("me avisa se abrir", "fico na espera", etc.). O sistema notifica automaticamente quando a vaga liberar.`,
     input_schema: {
       type: 'object',
       properties: {
@@ -121,7 +121,7 @@ const TOOLS = [
   },
   {
     name: 'registrar_interesse_produto',
-    description: `Registra interesse em produto sem efetivar compra (compra é presencial no balcão). CHAME quando: cliente perguntar detalhes de um produto específico, OU mencionar que vai comprar quando vier. NÃO CHAME só porque você ofereceu — só se ele demonstrou interesse claro.`,
+    description: `Registra interesse do cliente em um produto (a compra é sempre presencial). Chame quando ele pedir detalhes de um produto específico ou disser que vai levar quando vier. Não chame só porque você ofereceu no upsell — exige interesse claro do cliente.`,
     input_schema: {
       type: 'object',
       properties: {
@@ -134,7 +134,7 @@ const TOOLS = [
   },
   {
     name: 'notificar_sinal_recebido',
-    description: `Registra sinal Pix recebido e notifica o Andy pra aprovar. CHAME quando: cliente com confirmacao_rigorosa enviou comprovante de Pix do sinal de 50%. Você precisa do agendamento_id_provisorio que vem do criar_agendamento com status 'aguardando_sinal_aprovacao'.`,
+    description: `Registra o sinal Pix do cliente e notifica o Andy para aprovar. Chame quando um cliente com confirmacao_rigorosa=true enviar o comprovante de 50%. Use o agendamento_id_provisorio retornado pela chamada anterior de criar_agendamento.`,
     input_schema: {
       type: 'object',
       properties: {

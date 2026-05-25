@@ -31,7 +31,7 @@ import {
   registrarNoShow,
 } from './db.mjs'
 
-import { staff, upsellMap, MIN_ADVANCE_MINUTES, MAX_DAILY_ACTIVE_MESSAGES } from './config.mjs'
+import { staff, schedule, upsellMap, MIN_ADVANCE_MINUTES, MAX_DAILY_ACTIVE_MESSAGES } from './config.mjs'
 import { log, warn, error as logError } from './logger.mjs'
 
 function validarWhatsappNumber(numero) {
@@ -91,7 +91,7 @@ function staffNameById(id) {
 function isOpenDay(dateStr) {
   const d = new Date(dateStr + 'T12:00:00-03:00')
   const dow = d.getDay()
-  return [2, 3, 4, 5, 6].includes(dow) // ter–sáb
+  return schedule.openDays.includes(dow)
 }
 
 function minutesUntil(isoStr) {
@@ -121,7 +121,7 @@ export async function verificarDisponibilidade({ data, horario, servico_id, staf
 
     const dateStr = parseDateBR(data)
     if (!isOpenDay(dateStr)) {
-      return { disponivel: false, motivo: 'A barbearia não abre nesse dia (fechada domingo e segunda).' }
+      return { disponivel: false, motivo: 'A barbearia não abre nesse dia.' }
     }
 
     // Se horário não especificado, retorna todos slots livres do dia

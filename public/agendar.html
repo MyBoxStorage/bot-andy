@@ -413,6 +413,7 @@
         servicos: [],
         barbeiros: [],
         slots: [],
+        closedDays: [0],
         servicoEscolhido: null,
         barbeiroEscolhido: null,
         dataEscolhida: null,
@@ -428,12 +429,14 @@
 
         async init() {
           try {
-            const [s, b] = await Promise.all([
+            const [s, b, h] = await Promise.all([
               apiFetch('/api/servicos').then(r => r.json()),
               apiFetch('/api/barbeiros').then(r => r.json()),
+              apiFetch('/api/horario-funcionamento').then(r => r.json()).catch(() => null),
             ])
             this.servicos = s.servicos || []
             this.barbeiros = b.barbeiros || []
+            if (h?.closedDays) this.closedDays = h.closedDays
           } catch (e) {
             this.erro = 'Não foi possível carregar. Tente novamente em instantes.'
           } finally {
@@ -446,9 +449,10 @@
           const tz = 'America/Sao_Paulo'
           let d = new Date()
           d.setHours(12, 0, 0, 0)
-          while (out.length < 7) {
+          let safety = 0
+          while (out.length < 7 && safety++ < 60) {
             const dow = d.getDay()
-            if (dow !== 0) {
+            if (!this.closedDays.includes(dow)) {
               const iso = d.toLocaleDateString('en-CA', { timeZone: tz })
               out.push({
                 iso,
