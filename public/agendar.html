@@ -47,25 +47,86 @@
   <style>
     [x-cloak] { display: none !important; }
     body { font-family: 'Inter', system-ui, sans-serif; }
+    input:focus { border-color: #cc1f1f !important; outline: none; box-shadow: 0 0 0 3px rgba(204,31,31,0.15); }
+
+    /* ── Barber Pole ── */
+    .barber-pole {
+      height: 3px; width: 100%;
+      background: repeating-linear-gradient(90deg, #cc1f1f 0 16px, #ffffff 16px 32px, #2563eb 32px 48px);
+      opacity: 0.4;
+    }
+
+    /* ── Header redesign ── */
+    .header-inner {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 18px 20px 14px;
+    }
+    .header-sub {
+      margin-top: 8px; font-size: 10px; letter-spacing: 0.18em; color: #888;
+      font-weight: 500; text-transform: uppercase;
+    }
+    .header-progress { display: flex; gap: 6px; padding: 0 20px 12px; }
+    .header-progress-seg { flex: 1; height: 3px; border-radius: 2px; transition: background .25s; }
+
+    /* ── Chips ── */
+    .chip { flex-shrink: 0; padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; cursor: pointer; border: 1px solid transparent; transition: all .15s; }
+    .chip-active { background: #ffffff; color: #000; border-color: #ffffff; }
+    .chip-inactive { background: transparent; color: #888; border-color: rgba(255,255,255,0.12); }
+
+    /* ── Cards de serviço ── */
+    .svc-card-row { display: flex; align-items: center; justify-content: space-between; }
+    .svc-chevron { color: #555; flex-shrink: 0; }
+
+    /* ── Resumo passo 3 ── */
+    .step3-summary {
+      margin: 0 20px 18px;
+      padding: 12px 14px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .step3-summary-label { font-size: 11px; letter-spacing: 0.08em; color: #666; text-transform: uppercase; }
+    .step3-summary-value { font-size: 13px; color: #f0ece4; margin-top: 4px; font-weight: 500; }
+    .step3-section-label { font-size: 11px; letter-spacing: 0.08em; color: #666; text-transform: uppercase; margin-bottom: 10px; }
+
+    /* ── Slot selecionado sólido ── */
+    .slot-btn { border-radius: 12px; padding: 12px 0; text-align: center; font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; transition: all .15s; }
+    .slot-btn.selected { background: #2563eb !important; border-color: #2563eb !important; color: #fff !important; }
+
+    /* ── Passo 5 — card resumo ── */
+    .confirm-code { font-size: 11px; color: #666; font-family: 'Courier New', monospace; }
+    .confirm-total { color: #22c55e; font-size: 16px; font-weight: 700; }
+    .confirm-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 8px 0; }
+
+    /* ── Footer redesign ── */
+    .footer-redesign {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: rgba(0,0,0,0.95);
+      border-top: 1px solid rgba(255,255,255,0.07);
+    }
+    .footer-redesign-inner {
+      padding: 14px 20px 16px;
+      text-align: center; font-size: 11px; color: #888; line-height: 1.5;
+    }
+    .footer-redesign a { color: #3b82f6; text-decoration: none; font-size: 11px; }
   </style>
 </head>
 <body class="bg-[#0a0a0a] text-[#fafafa] min-h-screen pb-28" x-data="agendamento()" x-cloak>
 
-  <header class="fixed top-0 inset-x-0 z-50 bg-[#0a0a0a]/95 backdrop-blur border-b border-white/5">
-    <div class="max-w-lg mx-auto px-4 h-14 flex items-center gap-2">
-      <span class="w-9 h-9 rounded-xl bg-[#d4af37]/15 flex items-center justify-center text-lg">✂️</span>
-      <div>
-        <p class="font-semibold text-sm leading-tight">Andy Na Régua</p>
-        <p class="text-[10px] text-[#999] uppercase tracking-wider">Agendamento online</p>
-      </div>
-      <button type="button" x-show="passo > 1 && passo < 5" @click="voltar()" class="ml-auto text-sm text-[#d4af37]">Voltar</button>
+  <header class="fixed top-0 inset-x-0 z-50 bg-black/95 backdrop-blur border-b border-white/5">
+    <div class="max-w-lg mx-auto header-inner">
+      <img src="/logo.png" alt="Andy Na Régua" class="header-logo">
+      <div class="header-sub">Agendamento Online</div>
     </div>
-    <div class="max-w-lg mx-auto px-4 pb-2">
-      <div class="flex gap-1">
-        <template x-for="i in 4" :key="i">
-          <div class="h-0.5 flex-1 rounded-full transition-colors" :class="passo >= i ? 'bg-[#d4af37]' : 'bg-white/10'"></div>
-        </template>
-      </div>
+    <div class="max-w-lg mx-auto header-progress">
+      <template x-for="i in 4" :key="i">
+        <div class="header-progress-seg" :style="passo >= i ? 'background:#fff' : 'background:rgba(255,255,255,0.10)'"></div>
+      </template>
+    </div>
+    <div class="barber-pole"></div>
+    <div class="max-w-lg mx-auto px-4 pb-2" x-show="passo > 1 && passo < 5" style="text-align:right">
+      <button type="button" @click="voltar()" class="text-sm text-white/70 hover:text-white transition">Voltar</button>
     </div>
   </header>
 
@@ -74,23 +135,73 @@
     <!-- Passo 1: Serviços -->
     <section x-show="passo === 1" x-transition.opacity>
       <h1 class="text-xl font-bold mb-1">Escolha o serviço</h1>
-      <p class="text-sm text-[#999] mb-4">Preços e duração estimada</p>
+      <p class="text-sm text-[#888] mb-4">Preços e duração estimada</p>
+
+      <!-- Loading state -->
       <template x-if="carregando">
-        <p class="text-[#999] text-sm py-8 text-center">Carregando serviços…</p>
+        <div class="flex flex-col gap-3">
+          <div class="h-8 bg-[#1a1a1a] rounded-full w-48 animate-pulse"></div>
+          <div class="h-20 bg-[#1a1a1a] rounded-2xl animate-pulse"></div>
+          <div class="h-20 bg-[#1a1a1a] rounded-2xl animate-pulse"></div>
+          <div class="h-20 bg-[#1a1a1a] rounded-2xl animate-pulse"></div>
+        </div>
       </template>
-      <template x-for="cat in categoriasOrdenadas" :key="cat">
-        <p class="text-xs uppercase tracking-widest text-[#d4af37] font-semibold mt-4 mb-2" x-text="labelCategoria(cat)"></p>
-        <div class="grid gap-2">
-          <template x-for="s in servicosPorCategoria(cat)" :key="s.id">
-            <button type="button" @click="escolherServico(s)"
-              class="w-full text-left bg-[#1a1a1a] border border-white/5 rounded-2xl p-4 min-h-[72px] hover:border-[#d4af37]/40 active:scale-[.98] transition">
-              <div class="flex justify-between items-start gap-2">
-                <span class="font-medium" x-text="s.name"></span>
-                <span class="text-[#d4af37] font-semibold shrink-0" x-text="formatPreco(s.price)"></span>
-              </div>
-              <p class="text-xs text-[#999] mt-1" x-text="s.durationMinutes + ' min'"></p>
+
+      <!-- Erro ao carregar (sem serviços) -->
+      <template x-if="!carregando && erro && servicos.length === 0">
+        <div class="bg-[#1a1a1a] border border-red-500/30 rounded-2xl p-4 text-center">
+          <p class="text-red-400 text-sm mb-3" x-text="erro"></p>
+          <button @click="init()" class="text-sm text-white border border-white/20 rounded-xl px-4 py-2">
+            Tentar novamente
+          </button>
+        </div>
+      </template>
+
+      <!-- Chips de categoria + Cards de serviço -->
+      <template x-if="!carregando && servicos.length > 0">
+        <div>
+          <!-- Chips filtro de categoria -->
+          <div class="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-1 px-1">
+            <button
+              type="button"
+              @click="categoriaAtiva = null"
+              class="chip"
+              :class="categoriaAtiva === null ? 'chip-active' : 'chip-inactive'">
+              Todos
             </button>
-          </template>
+            <template x-for="cat in categoriasDisponiveis" :key="cat">
+              <button
+                type="button"
+                @click="categoriaAtiva = cat"
+                class="chip"
+                :class="categoriaAtiva === cat ? 'chip-active' : 'chip-inactive'"
+                x-text="labelCategoria(cat)">
+              </button>
+            </template>
+          </div>
+
+          <!-- Cards de serviço filtrados -->
+          <div class="flex flex-col gap-2">
+            <template x-for="s in servicosFiltrados" :key="s.id">
+              <button
+                type="button"
+                @click="escolherServico(s)"
+                class="w-full text-left bg-[#111] border border-white/7 rounded-2xl p-4 min-h-[72px] hover:border-white/20 hover:bg-[#1a1a1a] active:scale-[.98] transition-all">
+                <div class="svc-card-row">
+                  <div class="flex-1">
+                    <div class="font-semibold text-[#f0ece4]" x-text="s.name"></div>
+                    <p class="text-xs text-[#666] mt-1.5" x-text="s.durationMinutes + ' min'"></p>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <span class="font-bold text-white" x-text="formatPreco(s.price)"></span>
+                    <span class="svc-chevron">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    </span>
+                  </div>
+                </div>
+              </button>
+            </template>
+          </div>
         </div>
       </template>
     </section>
@@ -98,16 +209,16 @@
     <!-- Passo 2: Barbeiro -->
     <section x-show="passo === 2" x-transition.opacity>
       <h2 class="text-xl font-bold mb-1">Escolha o barbeiro</h2>
-      <p class="text-sm text-[#999] mb-4">Recomendamos qualquer disponível</p>
+      <p class="text-sm text-[#888] mb-4">Recomendamos qualquer disponível</p>
       <button type="button" @click="barbeiroEscolhido = null; passo = 3"
-        class="w-full bg-[#d4af37]/10 border-2 border-[#d4af37] rounded-2xl p-4 mb-3 min-h-[72px] text-left">
-        <p class="font-semibold text-[#d4af37]">Qualquer barbeiro disponível</p>
+        class="w-full bg-white/5 border-2 border-white rounded-2xl p-4 mb-3 min-h-[72px] text-left hover:bg-white/10 transition">
+        <p class="font-semibold text-white">Qualquer barbeiro disponível</p>
         <p class="text-xs text-[#999] mt-1">Primeiro horário livre entre a equipe</p>
       </button>
       <template x-for="b in barbeiros" :key="b.id">
         <button type="button" @click="barbeiroEscolhido = b; passo = 3"
-          class="w-full flex items-center gap-3 bg-[#1a1a1a] border border-white/5 rounded-2xl p-4 mb-2 min-h-[72px] hover:border-[#d4af37]/30 transition">
-          <span class="w-12 h-12 rounded-full bg-[#252525] flex items-center justify-center text-lg font-bold text-[#d4af37]" x-text="iniciais(b.name)"></span>
+          class="w-full flex items-center gap-3 bg-[#111] border border-white/7 rounded-2xl p-4 mb-2 min-h-[72px] hover:border-white/20 hover:bg-[#1a1a1a] transition">
+          <span class="w-12 h-12 rounded-full bg-[#252525] flex items-center justify-center text-lg font-bold text-white/60" x-text="iniciais(b.name)"></span>
           <div class="text-left">
             <p class="font-medium" x-text="b.name"></p>
             <p class="text-xs text-[#999]">Barbeiro profissional</p>
@@ -118,15 +229,33 @@
 
     <!-- Passo 3: Data e horário -->
     <section x-show="passo === 3" x-transition.opacity>
-      <h2 class="text-xl font-bold mb-1">Data e horário</h2>
-      <p class="text-sm text-[#999] mb-3" x-show="servicoEscolhido">
-        <span x-text="servicoEscolhido?.name"></span> · <span x-text="servicoEscolhido?.durationMinutes + ' min'"></span>
-      </p>
-      <div class="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+      <h2 class="text-xl font-bold mb-1">Escolha data e horário</h2>
+      <p class="text-sm text-[#888] mb-3">Disponibilidade em tempo real</p>
+
+      <!-- Resumo do que foi escolhido -->
+      <div class="step3-summary" x-show="servicoEscolhido">
+        <div>
+          <div class="step3-summary-label">Serviço · barbeiro</div>
+          <div class="step3-summary-value">
+            <span x-text="servicoEscolhido?.name"></span>
+            <span style="color:#555"> · </span>
+            <span x-text="barbeiroEscolhido?.name || 'Qualquer'"></span>
+          </div>
+        </div>
+        <button type="button" @click="passo = 2" class="text-xs text-[#888] hover:text-white transition">Trocar</button>
+      </div>
+
+      <!-- Label DATA -->
+      <div class="px-0 mb-1">
+        <div class="step3-section-label">Data</div>
+      </div>
+      <div class="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide mb-1">
         <template x-for="d in diasDisponiveis" :key="d.iso">
           <button type="button" @click="selecionarData(d.iso)"
             class="shrink-0 min-w-[4.5rem] py-3 px-2 rounded-2xl border text-center min-h-[48px] transition"
-            :class="dataEscolhida === d.iso ? 'border-[#d4af37] bg-[#d4af37]/10' : 'border-white/10 bg-[#1a1a1a]'">
+            :class="dataEscolhida === d.iso
+              ? 'border-white bg-white/10 text-white'
+              : 'border-white/10 bg-[#111] text-[#888]'">
             <p class="text-[10px] uppercase text-[#999]" x-text="d.dow"></p>
             <p class="font-semibold text-sm" x-text="d.label"></p>
           </button>
@@ -134,16 +263,23 @@
       </div>
       <p class="text-xs text-[#666] mt-2 mb-3">Domingo fechado · horários em horário de Brasília</p>
 
+      <!-- Label HORÁRIO -->
+      <div class="flex items-baseline justify-between mb-2">
+        <div class="step3-section-label">Horário</div>
+        <div class="text-xs text-[#666]" x-text="dataEscolhida ? dataEscolhida.split('-').reverse().join('/') : ''"></div>
+      </div>
+
       <template x-if="carregandoSlots">
-        <p class="text-center text-[#999] py-6 text-sm">Buscando horários…</p>
+        <p class="text-center text-[#888] py-6 text-sm">Buscando horários…</p>
       </template>
       <template x-if="!carregandoSlots && dataEscolhida && slots.length === 0">
-        <p class="text-center text-[#999] py-6 text-sm">Nenhum horário livre neste dia. Tente outra data.</p>
+        <p class="text-center text-[#888] py-6 text-sm">Nenhum horário livre neste dia. Tente outra data.</p>
       </template>
       <div class="grid grid-cols-3 gap-2" x-show="slots.length">
         <template x-for="sl in slots" :key="sl.start + (sl.staffId||'')">
           <button type="button" @click="slotEscolhido = sl; passo = 4"
-            class="min-h-[48px] rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-medium text-sm hover:bg-emerald-500/20 transition">
+            class="slot-btn min-h-[48px] border"
+            :class="slotEscolhido && slotEscolhido.start === sl.start ? 'selected' : 'border-[#2563eb]/40 bg-[#2563eb]/10 text-[#3b82f6]'">
             <span x-text="sl.label"></span>
             <span class="block text-[9px] text-[#999] font-normal truncate" x-show="!barbeiroEscolhido" x-text="sl.staffName"></span>
           </button>
@@ -154,51 +290,105 @@
     <!-- Passo 4: Dados -->
     <section x-show="passo === 4" x-transition.opacity>
       <h2 class="text-xl font-bold mb-1">Seus dados</h2>
-      <p class="text-sm text-[#999] mb-4">Enviamos a confirmação no WhatsApp</p>
-      <div class="bg-[#1a1a1a] rounded-2xl p-4 mb-4 border border-white/5 text-sm space-y-1">
-        <p><span class="text-[#999]">Serviço:</span> <span x-text="servicoEscolhido?.name"></span></p>
-        <p><span class="text-[#999]">Horário:</span> <span x-text="resumoHorario()"></span></p>
-        <p x-show="slotEscolhido?.staffName"><span class="text-[#999]">Barbeiro:</span> <span x-text="slotEscolhido?.staffName"></span></p>
+      <p class="text-sm text-[#888] mb-4">Enviamos a confirmação no WhatsApp</p>
+      <div class="bg-[#111] rounded-2xl p-4 mb-4 border border-white/10 text-sm space-y-1">
+        <p><span class="text-[#888]">Serviço:</span> <span x-text="servicoEscolhido?.name"></span></p>
+        <p><span class="text-[#888]">Horário:</span> <span x-text="resumoHorario()"></span></p>
+        <p x-show="slotEscolhido?.staffName"><span class="text-[#888]">Barbeiro:</span> <span x-text="slotEscolhido?.staffName"></span></p>
       </div>
       <label class="block mb-3">
-        <span class="text-xs text-[#999] uppercase tracking-wide">Nome completo</span>
+        <span class="text-xs text-[#888] uppercase tracking-wide">Nome completo</span>
         <input type="text" x-model="nome" required autocomplete="name"
-          class="mt-1 w-full bg-[#1a1a1a] border border-white/10 rounded-2xl px-4 py-3 min-h-[48px] focus:border-[#d4af37] outline-none">
+          class="mt-1 w-full bg-[#111] border border-white/10 rounded-2xl px-4 py-3 min-h-[48px] outline-none transition">
       </label>
       <label class="block mb-4">
-        <span class="text-xs text-[#999] uppercase tracking-wide">WhatsApp</span>
+        <span class="text-xs text-[#888] uppercase tracking-wide">WhatsApp</span>
         <input type="tel" inputmode="numeric" x-model="whatsapp" @input="mascararWhatsapp()"
           placeholder="(47) 99999-9999" autocomplete="tel"
-          class="mt-1 w-full bg-[#1a1a1a] border border-white/10 rounded-2xl px-4 py-3 min-h-[48px] focus:border-[#d4af37] outline-none">
+          class="mt-1 w-full bg-[#111] border border-white/10 rounded-2xl px-4 py-3 min-h-[48px] outline-none transition">
       </label>
-      <p x-show="erro" class="text-red-400 text-sm mb-3" x-text="erro"></p>
+      <div x-show="erro" x-transition class="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-3">
+        <svg class="shrink-0 mt-0.5" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <p class="text-red-400 text-sm" x-text="erro"></p>
+      </div>
       <button type="button" @click="confirmar()" :disabled="enviando || !formValido()"
-        class="w-full min-h-[52px] rounded-2xl bg-[#d4af37] text-black font-semibold text-base disabled:opacity-40 transition active:scale-[.98]">
+        class="w-full min-h-[52px] rounded-2xl bg-[#cc1f1f] text-white font-semibold text-base disabled:opacity-40 transition active:scale-[.98] hover:bg-[#e53535]">
         <span x-text="enviando ? 'Confirmando…' : 'Confirmar agendamento'"></span>
       </button>
     </section>
 
     <!-- Passo 5: Confirmação -->
     <section x-show="passo === 5" x-transition.opacity class="text-center py-6">
-      <div class="text-6xl mb-4">✅</div>
-      <h2 class="text-2xl font-bold mb-2">Agendado!</h2>
-      <p class="text-[#999] text-sm mb-6">Mandamos a confirmação no seu WhatsApp também.</p>
-      <div class="bg-[#1a1a1a] rounded-2xl p-5 border border-white/5 text-left text-sm space-y-2 mb-6" x-show="agendamentoOk">
-        <p><span class="text-[#999]">Serviço:</span> <span x-text="agendamentoOk?.servico_nome"></span></p>
-        <p><span class="text-[#999]">Quando:</span> <span x-text="agendamentoOk?.data_label"></span> às <span x-text="agendamentoOk?.hora_label"></span></p>
-        <p><span class="text-[#999]">Barbeiro:</span> <span x-text="agendamentoOk?.staff_nome"></span></p>
+      <div class="w-16 h-16 rounded-full bg-[#2563eb]/20 border border-[#2563eb]/40 flex items-center justify-center mx-auto mb-4">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
       </div>
-      <div class="flex flex-col gap-2">
-        <button type="button" @click="reset()" class="w-full min-h-[48px] rounded-2xl border border-[#d4af37] text-[#d4af37] font-medium">Fazer outro agendamento</button>
+      <h2 class="text-2xl font-bold mb-2">Agendado!</h2>
+      <p class="text-[#888] text-sm mb-6">Mandamos a confirmação no seu WhatsApp também.</p>
+      <div class="bg-[#111] rounded-2xl p-5 border border-white/10 text-left text-sm mb-6" x-show="agendamentoOk">
+        <div class="flex justify-between items-baseline mb-3">
+          <div class="text-[10px] uppercase tracking-widest text-[#666]">Confirmação</div>
+          <div class="confirm-code" x-text="'#' + String(agendamentoOk?.id || '').padStart(4,'0').toUpperCase()"></div>
+        </div>
+        <div class="space-y-2">
+          <div class="flex justify-between">
+            <span class="text-[#888]">Serviço</span>
+            <span class="font-semibold text-white" x-text="agendamentoOk?.servico_nome"></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-[#888]">Barbeiro</span>
+            <span class="text-white font-medium" x-text="agendamentoOk?.staff_nome"></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-[#888]">Data</span>
+            <span class="text-white font-medium" x-text="agendamentoOk?.data_label"></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-[#888]">Horário</span>
+            <span class="text-white font-medium" x-text="agendamentoOk?.hora_label"></span>
+          </div>
+          <div class="confirm-divider"></div>
+          <div class="flex justify-between items-center">
+            <span class="text-[#888]">Total</span>
+            <span class="confirm-total" x-text="'R$ ' + (agendamentoOk?.servico_preco ? Number(agendamentoOk.servico_preco).toFixed(2) : '—')"></span>
+          </div>
+        </div>
+      </div>
+      <div class="flex flex-col gap-2 mt-2">
+        <button type="button" @click="reset()"
+          class="w-full min-h-[48px] rounded-2xl bg-[#cc1f1f] hover:bg-[#e53535] text-white font-semibold transition active:scale-[.98]">
+          Fazer outro agendamento
+        </button>
+
+        <a
+          :href="gerarLinkCalendario()"
+          target="_blank"
+          rel="noopener"
+          x-show="agendamentoOk"
+          class="w-full min-h-[48px] rounded-2xl bg-[#2563eb]/10 border border-[#2563eb]/40 text-[#3b82f6] flex items-center justify-center gap-2 font-medium hover:bg-[#2563eb]/20 transition">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          Salvar no calendário
+        </a>
+
+        <a href="https://instagram.com/andynaregua" target="_blank" rel="noopener"
+          class="w-full min-h-[48px] rounded-2xl bg-[#111] border border-white/10 flex items-center justify-center gap-2 font-medium text-[#888] hover:text-white hover:border-white/20 transition">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>
+          Seguir @andynaregua
+        </a>
+
         <a href="https://maps.google.com/?q=Rua+900+41+Balneário+Camboriú" target="_blank" rel="noopener"
-          class="w-full min-h-[48px] rounded-2xl bg-[#1a1a1a] border border-white/10 flex items-center justify-center font-medium">Ver no mapa</a>
+          class="w-full min-h-[48px] rounded-2xl bg-[#111] border border-white/10 flex items-center justify-center font-medium text-[#888] hover:text-white hover:border-white/20 transition">
+          Ver no mapa
+        </a>
       </div>
     </section>
   </main>
 
-  <footer class="fixed bottom-0 inset-x-0 bg-[#0a0a0a]/95 border-t border-white/5 py-3 px-4 text-center text-xs text-[#999]">
-    <p>Rua 900, nº 41 (Antigo China Center) — Balneário Camboriú/SC</p>
-    <a href="https://instagram.com/andynaregua" target="_blank" rel="noopener" class="text-[#d4af37]">@andynaregua</a>
+  <footer class="footer-redesign">
+    <div class="barber-pole"></div>
+    <div class="footer-redesign-inner">
+      Rua 900, nº 41 (Antigo China Center) — Balneário Camboriú/SC<br>
+      <a href="https://instagram.com/andynaregua" target="_blank" rel="noopener">@andynaregua</a>
+    </div>
   </footer>
 
   <script>
@@ -233,6 +423,7 @@
         carregando: true,
         carregandoSlots: false,
         agendamentoOk: null,
+        categoriaAtiva: null,
 
         async init() {
           try {
@@ -269,18 +460,19 @@
           return out
         },
 
-        get categoriasOrdenadas() {
+        get categoriasDisponiveis() {
           const order = ['cabelo', 'barba', 'estetica']
           const cats = [...new Set(this.servicos.map(s => s.category || 'cabelo'))]
           return order.filter(c => cats.includes(c)).concat(cats.filter(c => !order.includes(c)))
         },
 
-        labelCategoria(cat) {
-          return { cabelo: 'Cabelo', barba: 'Barba', estetica: 'Estética' }[cat] || cat
+        get servicosFiltrados() {
+          if (!this.categoriaAtiva) return this.servicos
+          return this.servicos.filter(s => (s.category || 'cabelo') === this.categoriaAtiva)
         },
 
-        servicosPorCategoria(cat) {
-          return this.servicos.filter(s => (s.category || 'cabelo') === cat)
+        labelCategoria(cat) {
+          return { cabelo: 'Cabelo', barba: 'Barba', estetica: 'Estética' }[cat] || cat
         },
 
         formatPreco(v) {
@@ -298,7 +490,7 @@
 
         voltar() {
           if (this.passo === 4) this.passo = 3
-          else if (this.passo === 3) this.passo = this.barbeiroEscolhido ? 2 : 2
+          else if (this.passo === 3) this.passo = 2
           else if (this.passo === 2) this.passo = 1
           else this.passo = Math.max(1, this.passo - 1)
         },
@@ -348,6 +540,16 @@
           return `${d} às ${this.slotEscolhido.label}`
         },
 
+        gerarLinkCalendario() {
+          if (!this.agendamentoOk) return '#'
+          const inicio = new Date(this.slotEscolhido?.start || '')
+          const fim = new Date(inicio.getTime() + (this.servicoEscolhido?.durationMinutes || 30) * 60000)
+          const fmt = (dt) => dt.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
+          const texto = encodeURIComponent(`${this.agendamentoOk.servico_nome} — Andy Na Régua`)
+          const local = encodeURIComponent('Rua 900, nº 41, Balneário Camboriú, SC')
+          return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${texto}&dates=${fmt(inicio)}/${fmt(fim)}&location=${local}`
+        },
+
         async confirmar() {
           if (!this.formValido()) return
           this.enviando = true
@@ -394,6 +596,7 @@
           this.erro = null
           this.agendamentoOk = null
           this.slots = []
+          this.categoriaAtiva = null
         },
       }))
     })
