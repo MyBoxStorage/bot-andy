@@ -1,15 +1,18 @@
 # Arquivos/pastas que NÃO devem ser enviados pra Vercel
-# A Vercel só precisa do código da landing (public/) e do vercel.json
+# A Vercel só precisa do código da landing (public/), vercel.json e o script de build
 
 # Backend (não roda na Vercel — roda local + ngrok)
 src/
 data/
 tokens/
-scripts/
 demo.mjs
 demo-chat.mjs
 ecosystem.config.cjs
 check-agendamentos.mjs
+
+# Scripts locais (exceto o de build da Vercel)
+scripts/cenario-b.ps1
+scripts/get-token.mjs
 
 # Dependências (Vercel reinstala)
 node_modules/
