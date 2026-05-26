@@ -1613,7 +1613,7 @@ export function getAgendamentosParaConcluir() {
       WHERE status = 'confirmado'
         AND presenca_confirmada_at IS NULL
         AND no_show_marcado_at IS NULL
-        AND datetime(data_hora_fim) <= datetime('now', '-60 minutes', 'localtime')
+        AND datetime(data_hora_fim) <= datetime('now', '-60 minutes')
     `)
     .all()
 }

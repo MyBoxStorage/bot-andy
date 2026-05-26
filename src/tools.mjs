@@ -214,6 +214,16 @@ export async function criarAgendamentoTool({ whatsapp_number, cliente_nome, staf
       log(`staff_id="qualquer" resolvido para "${staff_id}"`)
     }
 
+    // Validação: serviço não pode terminar após o horário de fechamento
+    const closeTimeStr = schedule.closeTime || '22:00'
+    const fimMs = new Date(start_iso).getTime() + servico.duracao_minutos * 60000
+    const fimLocal = new Date(fimMs).toLocaleTimeString('pt-BR', {
+      timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false,
+    })
+    if (fimLocal > closeTimeStr) {
+      return { sucesso: false, erro: `O serviço termina às ${fimLocal}, após o fechamento (${closeTimeStr}). Vamos escolher um horário mais cedo?` }
+    }
+
     const cliente = getCliente(whatsapp_number)
     if (cliente?.confirmacao_rigorosa) {
       const valorSinal = (servico.preco * 0.5).toFixed(2)

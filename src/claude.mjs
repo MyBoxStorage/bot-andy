@@ -291,7 +291,7 @@ export async function askClaude(userMessage, whatsappNumber) {
   let precisouHandoff = false
   let ultimoAgendamentoCriado = null
 
-  for (let round = 0; round < 4; round++) {
+  for (let round = 0; round < 6; round++) {
     const response = await fetchClaudeComRetry({
       model: MODEL,
       max_tokens: MAX_TOKENS,

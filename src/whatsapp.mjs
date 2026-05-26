@@ -227,28 +227,27 @@ async function processarMensagem(message) {
   }
 
   if (tipo === 'chat' && message.body) {
-    const resposta = await detectarRespostaConfirmacao(message.body, userPhone)
-    if (resposta) {
-      const agendamentos = getAgendamentosFuturosCliente(userPhone)
-      const pendente = agendamentos.find(a =>
-        a.lembrete_2h_enviado_at && !a.confirmado_pelo_cliente_at && a.status === 'confirmado'
-      )
-      if (pendente) {
-        if (resposta === 'confirmar') {
-          marcarConfirmadoPeloCliente(pendente.id)
-          resetLoopCount(userPhone)
-          await client.sendText(userPhone, M.confirmadoLembrete())
-          logMensagem(userPhone, 'saida', 'Confirmação registrada', 'texto')
-          return
-        } else if (resposta === 'cancelar') {
-          cancelarAgendamento(pendente.id, 'cliente')
-          if (pendente.google_event_id) {
-            await deleteEvent(pendente.staff_id, pendente.google_event_id).catch(() => {})
-          }
-          await client.sendText(userPhone, M.canceladoCliente())
-          logMensagem(userPhone, 'saida', 'Cancelamento pelo cliente registrado', 'texto')
-          return
+    // Só chama Haiku classificador se houver lembrete pendente aguardando resposta — evita custo em toda msg
+    const agendamentos = getAgendamentosFuturosCliente(userPhone)
+    const pendente = agendamentos.find(a =>
+      a.lembrete_2h_enviado_at && !a.confirmado_pelo_cliente_at && a.status === 'confirmado'
+    )
+    if (pendente) {
+      const resposta = await detectarRespostaConfirmacao(message.body, userPhone)
+      if (resposta === 'confirmar') {
+        marcarConfirmadoPeloCliente(pendente.id)
+        resetLoopCount(userPhone)
+        await client.sendText(userPhone, M.confirmadoLembrete())
+        logMensagem(userPhone, 'saida', 'Confirmação registrada', 'texto')
+        return
+      } else if (resposta === 'cancelar') {
+        cancelarAgendamento(pendente.id, 'cliente')
+        if (pendente.google_event_id) {
+          await deleteEvent(pendente.staff_id, pendente.google_event_id).catch(() => {})
         }
+        await client.sendText(userPhone, M.canceladoCliente())
+        logMensagem(userPhone, 'saida', 'Cancelamento pelo cliente registrado', 'texto')
+        return
       }
     }
   }

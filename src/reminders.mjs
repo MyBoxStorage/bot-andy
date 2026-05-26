@@ -277,15 +277,27 @@ export function initReminders() {
   const DELAY_INICIAL_MS = 60_000
 
   setTimeout(() => {
-    cron.schedule('* * * * *', processarFilaProativa, { timezone: 'America/Sao_Paulo' })
+    let _filaRodando = false
+    cron.schedule('* * * * *', async () => {
+      if (_filaRodando) return
+      _filaRodando = true
+      try { await processarFilaProativa() } finally { _filaRodando = false }
+    }, { timezone: 'America/Sao_Paulo' })
 
+    let _jobs5mRodando = false
     cron.schedule('*/5 * * * *', async () => {
-      await jobLembretes()
-      await jobCancelamentosAutomaticos()
-      await jobUpsellPosServico()
-      await jobNotificarFila()
-      await jobFeedback()
-      await jobFollowUpHandoff()
+      if (_jobs5mRodando) return
+      _jobs5mRodando = true
+      try {
+        await jobLembretes()
+        await jobCancelamentosAutomaticos()
+        await jobUpsellPosServico()
+        await jobNotificarFila()
+        await jobFeedback()
+        await jobFollowUpHandoff()
+      } finally {
+        _jobs5mRodando = false
+      }
     }, { timezone: 'America/Sao_Paulo' })
 
     cron.schedule('0 10,11 * * 2-5', jobReativacao, { timezone: 'America/Sao_Paulo' })

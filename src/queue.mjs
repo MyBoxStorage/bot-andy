@@ -9,7 +9,9 @@ export async function processarFilaProativa() {
   if (!sendFunction) { logError('queue: sendFunction não registrada'); return }
 
   const pendentes = getMensagensParaEnviar()
-  for (const msg of pendentes) {
+  for (let i = 0; i < pendentes.length; i++) {
+    const msg = pendentes[i]
+    if (i > 0) await new Promise(r => setTimeout(r, 300))
     try {
       const ok = await sendFunction(msg.whatsapp_number, msg.conteudo)
       if (ok) {
@@ -31,9 +33,15 @@ export async function processarFilaProativa() {
   if (falhas.length) {
     const andyPhone = getConfig('andy_phone')
     if (andyPhone && sendFunction) {
-      for (const f of falhas) {
-        await sendFunction(andyPhone, `⚠️ Falha ao enviar msg crítica pra ${f.whatsapp_number}: ${f.ultimo_erro}. Verificar manualmente.`)
-        marcarMensagemEnviada(f.id)
+      for (let i = 0; i < falhas.length; i++) {
+        const f = falhas[i]
+        if (i > 0) await new Promise(r => setTimeout(r, 300))
+        try {
+          const okAviso = await sendFunction(andyPhone, `⚠️ Falha ao enviar msg crítica pra ${f.whatsapp_number}: ${f.ultimo_erro}. Verificar manualmente.`)
+          if (okAviso) marcarMensagemEnviada(f.id)
+        } catch (e) {
+          logError('queue: falha ao notificar Andy sobre msg crítica:', e.message)
+        }
       }
     }
   }
