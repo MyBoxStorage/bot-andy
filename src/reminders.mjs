@@ -3,6 +3,8 @@ import {
   getAgendamentosParaLembrete,
   getAgendamentosParaCancelarAutomatico,
   getAgendamentosParaUpsellPosServico,
+  getAgendamentosParaConcluir,
+  concluirAgendamentoAuto,
   marcarLembrete2hEnviado,
   cancelarAgendamento,
   marcarUpsellPosServico,
@@ -133,6 +135,24 @@ async function jobUpsellPosServico() {
     }
   } catch (err) {
     logError('jobUpsellPosServico erro:', err)
+  }
+}
+
+// Encerra agendamentos ainda "confirmados" quando a recepção não marcou presença nem no-show
+// e já passou 1h do horário de fim (ver getAgendamentosParaConcluir em db.mjs).
+async function jobConcluirAgendamentosAutomatico() {
+  try {
+    const candidatos = getAgendamentosParaConcluir()
+    const idsAfetados = []
+    for (const ag of candidatos) {
+      if (concluirAgendamentoAuto(ag.id)) idsAfetados.push(ag.id)
+    }
+    const count = idsAfetados.length
+    if (count === 0) return
+    log(`[auto-conclusão] ${count} agendamento(s) concluído(s) automaticamente`)
+    log(`[auto-conclusão] IDs afetados: ${idsAfetados.join(', ')}`)
+  } catch (err) {
+    logError('jobConcluirAgendamentosAutomatico erro:', err)
   }
 }
 
@@ -271,7 +291,12 @@ export function initReminders() {
     cron.schedule('0 10,11 * * 2-5', jobReativacao, { timezone: 'America/Sao_Paulo' })
     cron.schedule('0 3 * * *', jobLimpezaDiaria, { timezone: 'America/Sao_Paulo' })
 
+    cron.schedule('*/15 * * * *', async () => {
+      await jobConcluirAgendamentosAutomatico()
+    }, { timezone: 'America/Sao_Paulo' })
+
     log('⏰ Sistema de lembretes ativo após delay inicial (cron a cada 5 min + reativação ter-sex 10-12h + limpeza 3h)')
+    log('⏰ Auto-conclusão de agendamentos: cron a cada 15 min (America/Sao_Paulo)')
   }, DELAY_INICIAL_MS)
 
   log(`⏳ Aguardando ${DELAY_INICIAL_MS / 1000}s antes de ativar jobs proativos (anti-spam no restart)`)

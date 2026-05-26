@@ -1,6 +1,8 @@
 import Database from 'better-sqlite3'
+import bcrypt from 'bcryptjs'
 import fs       from 'fs'
 import path     from 'path'
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'url'
 import { log } from './logger.mjs'
 
@@ -227,6 +229,103 @@ function addColumnIfMissing(table, column, definition) {
   }
 }
 
+/**
+ * Migrações do módulo financeiro: barbeiros, comissões, fechamentos, despesas e sessões.
+ * Idempotente (CREATE IF NOT EXISTS / colunas condicionais).
+ */
+function runFinanceiroMigrations() {
+  const database = getDb()
+  database.exec(`
+CREATE TABLE IF NOT EXISTS barbeiros (
+  id          TEXT PRIMARY KEY,
+  nome        TEXT NOT NULL,
+  whatsapp    TEXT,
+  senha_hash  TEXT NOT NULL,
+  comissao_padrao_pct REAL NOT NULL DEFAULT 0,
+  ativo       INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS comissao_overrides (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  barbeiro_id TEXT NOT NULL,
+  servico_id  TEXT NOT NULL,
+  pct         REAL NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (barbeiro_id) REFERENCES barbeiros(id),
+  UNIQUE(barbeiro_id, servico_id)
+);
+
+CREATE TABLE IF NOT EXISTS fechamentos (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  barbeiro_id     TEXT NOT NULL,
+  periodo_inicio  TEXT NOT NULL,
+  periodo_fim     TEXT NOT NULL,
+  total_bruto     REAL NOT NULL DEFAULT 0,
+  total_comissao  REAL NOT NULL DEFAULT 0,
+  pct_aplicado    REAL NOT NULL DEFAULT 0,
+  status          TEXT NOT NULL DEFAULT 'aberto',
+  pago_em         TEXT,
+  pago_por        TEXT,
+  obs             TEXT,
+  notificado_barbeiro INTEGER NOT NULL DEFAULT 0,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (barbeiro_id) REFERENCES barbeiros(id)
+);
+
+CREATE TABLE IF NOT EXISTS fechamento_agendamentos (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  fechamento_id   INTEGER NOT NULL,
+  agendamento_id  INTEGER NOT NULL,
+  servico_nome    TEXT NOT NULL,
+  valor_bruto     REAL NOT NULL,
+  pct_comissao    REAL NOT NULL,
+  valor_comissao  REAL NOT NULL,
+  FOREIGN KEY (fechamento_id) REFERENCES fechamentos(id),
+  FOREIGN KEY (agendamento_id) REFERENCES agendamentos(id)
+);
+
+CREATE TABLE IF NOT EXISTS despesas (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  descricao   TEXT NOT NULL,
+  valor       REAL NOT NULL,
+  categoria   TEXT NOT NULL DEFAULT 'outros',
+  categoria_livre TEXT,
+  data        TEXT NOT NULL,
+  registrado_por TEXT NOT NULL DEFAULT 'admin',
+  obs         TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS sessoes_barbeiro (
+  id          TEXT PRIMARY KEY,
+  barbeiro_id TEXT NOT NULL,
+  expires_at  TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (barbeiro_id) REFERENCES barbeiros(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fechamentos_barbeiro ON fechamentos(barbeiro_id);
+CREATE INDEX IF NOT EXISTS idx_fechamentos_status ON fechamentos(status);
+CREATE INDEX IF NOT EXISTS idx_despesas_data ON despesas(data);
+CREATE INDEX IF NOT EXISTS idx_sessoes_barbeiro ON sessoes_barbeiro(barbeiro_id);
+CREATE INDEX IF NOT EXISTS idx_sessoes_expires ON sessoes_barbeiro(expires_at);
+`)
+
+  // Placeholders iniciais dos barbeiros (senha provisória: mudar123)
+  const senhaPlaceholder = bcrypt.hashSync('mudar123', 10)
+  const insertBarbeiro = database.prepare(`
+    INSERT OR IGNORE INTO barbeiros (id, nome, senha_hash, comissao_padrao_pct)
+    VALUES (@id, @nome, @senha_hash, 0)
+  `)
+  insertBarbeiro.run({ id: 'barbeiro1', nome: 'Barbeiro 1', senha_hash: senhaPlaceholder })
+  insertBarbeiro.run({ id: 'barbeiro2', nome: 'Barbeiro 2', senha_hash: senhaPlaceholder })
+  insertBarbeiro.run({ id: 'barbeiro3', nome: 'Barbeiro 3', senha_hash: senhaPlaceholder })
+  log('Migration: financeiro (tabelas barbeiros/fechamentos/despesas etc.)')
+}
+
 export function runMigrations() {
   addColumnIfMissing('agendamentos', 'sinal_valor', 'REAL')
   addColumnIfMissing('agendamentos', 'sinal_pago_at', 'TEXT')
@@ -239,6 +338,10 @@ export function runMigrations() {
   addColumnIfMissing('clientes', 'ultima_reativacao_at', 'TEXT')
   addColumnIfMissing('clientes', 'fotos_recebidas_count', 'INTEGER NOT NULL DEFAULT 0')
   addColumnIfMissing('clientes', 'sticker_respondido', 'INTEGER NOT NULL DEFAULT 0')
+  addColumnIfMissing('agendamentos', 'concluido_automatico', 'INTEGER NOT NULL DEFAULT 0')
+  addColumnIfMissing('agendamentos', 'presenca_confirmada_at', 'TEXT')
+  addColumnIfMissing('agendamentos', 'no_show_marcado_at', 'TEXT')
+  runFinanceiroMigrations()
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1278,3 +1381,286 @@ export function purgarMensagensAntigas(diasTtl = 180) {
 }
 
 export function getDbPath() { return DB_PATH }
+
+// ═══════════════════════════════════════════════════════════════
+//  BARBEIROS, FECHAMENTOS, DESPESAS E SESSÕES (módulo financeiro)
+// ═══════════════════════════════════════════════════════════════
+
+export function getBarbeiros() {
+  return getDb().prepare(`SELECT * FROM barbeiros WHERE ativo = 1 ORDER BY id`).all()
+}
+
+export function getBarbeiroById(id) {
+  return getDb().prepare(`SELECT * FROM barbeiros WHERE id = ?`).get(id)
+}
+
+export function getBarbeiroByNome(nome) {
+  return getDb()
+    .prepare(`SELECT * FROM barbeiros WHERE lower(nome) = lower(?) AND ativo = 1`)
+    .get(nome)
+}
+
+export function updateBarbeiro(id, dados) {
+  const fields = []
+  const values = []
+  if (dados.nome                 !== undefined) { fields.push(`nome = ?`);                 values.push(dados.nome) }
+  if (dados.whatsapp             !== undefined) { fields.push(`whatsapp = ?`);             values.push(dados.whatsapp) }
+  if (dados.senha_hash           !== undefined) { fields.push(`senha_hash = ?`);           values.push(dados.senha_hash) }
+  if (dados.comissao_padrao_pct  !== undefined) { fields.push(`comissao_padrao_pct = ?`);  values.push(dados.comissao_padrao_pct) }
+  if (dados.ativo                !== undefined) { fields.push(`ativo = ?`);                values.push(dados.ativo ? 1 : 0) }
+  if (!fields.length) return getBarbeiroById(id)
+  fields.push(`updated_at = datetime('now')`)
+  values.push(id)
+  getDb().prepare(`UPDATE barbeiros SET ${fields.join(', ')} WHERE id = ?`).run(...values)
+  return getBarbeiroById(id)
+}
+
+export function getComissaoOverrides(barbeiroId) {
+  return getDb()
+    .prepare(`SELECT * FROM comissao_overrides WHERE barbeiro_id = ? ORDER BY servico_id`)
+    .all(barbeiroId)
+}
+
+export function setComissaoOverride(barbeiroId, servicoId, pct) {
+  getDb()
+    .prepare(`
+      INSERT OR REPLACE INTO comissao_overrides (barbeiro_id, servico_id, pct)
+      VALUES (?, ?, ?)
+    `)
+    .run(barbeiroId, servicoId, pct)
+}
+
+export function criarFechamento(dados) {
+  const r = getDb()
+    .prepare(`
+      INSERT INTO fechamentos (
+        barbeiro_id, periodo_inicio, periodo_fim, total_bruto, total_comissao, pct_aplicado,
+        status, pago_em, pago_por, obs, notificado_barbeiro
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      dados.barbeiro_id,
+      dados.periodo_inicio,
+      dados.periodo_fim,
+      dados.total_bruto ?? 0,
+      dados.total_comissao ?? 0,
+      dados.pct_aplicado ?? 0,
+      dados.status ?? 'aberto',
+      dados.pago_em ?? null,
+      dados.pago_por ?? null,
+      dados.obs ?? null,
+      dados.notificado_barbeiro ? 1 : 0,
+    )
+  return getDb().prepare(`SELECT * FROM fechamentos WHERE id = ?`).get(r.lastInsertRowid)
+}
+
+export function getFechamentosByBarbeiro(barbeiroId, limit = 10) {
+  return getDb()
+    .prepare(`SELECT * FROM fechamentos WHERE barbeiro_id = ? ORDER BY id DESC LIMIT ?`)
+    .all(barbeiroId, limit)
+}
+
+export function getFechamentosAbertos() {
+  return getDb()
+    .prepare(`SELECT * FROM fechamentos WHERE status = 'aberto' ORDER BY created_at ASC`)
+    .all()
+}
+
+export function registrarPagamentoFechamento(id, pagoPor) {
+  getDb()
+    .prepare(`
+      UPDATE fechamentos
+      SET status = 'pago',
+          pago_em = datetime('now'),
+          pago_por = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `)
+    .run(pagoPor, id)
+  return getDb().prepare(`SELECT * FROM fechamentos WHERE id = ?`).get(id)
+}
+
+export function getFechamentoDetalhe(id) {
+  const fechamento = getDb().prepare(`SELECT * FROM fechamentos WHERE id = ?`).get(id)
+  if (!fechamento) return null
+  const linhas = getDb()
+    .prepare(`
+      SELECT * FROM fechamento_agendamentos
+      WHERE fechamento_id = ?
+      ORDER BY id
+    `)
+    .all(id)
+  return { fechamento, agendamentos: linhas }
+}
+
+export function criarDespesa(dados) {
+  const r = getDb()
+    .prepare(`
+      INSERT INTO despesas (descricao, valor, categoria, categoria_livre, data, registrado_por, obs)
+      VALUES (@descricao, @valor, COALESCE(@categoria, 'outros'), @categoria_livre, @data, COALESCE(@registrado_por, 'admin'), @obs)
+    `)
+    .run({
+      descricao: dados.descricao,
+      valor: dados.valor,
+      categoria: dados.categoria ?? 'outros',
+      categoria_livre: dados.categoria_livre ?? null,
+      data: dados.data,
+      registrado_por: dados.registrado_por ?? 'admin',
+      obs: dados.obs ?? null,
+    })
+  return getDb().prepare(`SELECT * FROM despesas WHERE id = ?`).get(r.lastInsertRowid)
+}
+
+export function getDespesas(filtros = {}) {
+  let q = `SELECT * FROM despesas WHERE 1=1`
+  const params = []
+  if (filtros.dataInicio) {
+    q += ` AND date(data) >= date(?)`
+    params.push(filtros.dataInicio)
+  }
+  if (filtros.dataFim) {
+    q += ` AND date(data) <= date(?)`
+    params.push(filtros.dataFim)
+  }
+  if (filtros.categoria) {
+    q += ` AND categoria = ?`
+    params.push(filtros.categoria)
+  }
+  q += ` ORDER BY data DESC, id DESC`
+  return getDb().prepare(q).all(...params)
+}
+
+export function deletarDespesa(id) {
+  const r = getDb().prepare(`DELETE FROM despesas WHERE id = ?`).run(id)
+  return r.changes > 0
+}
+
+export function criarSessaoBarbeiro(barbeiroId) {
+  const id = randomUUID()
+  getDb()
+    .prepare(`
+      INSERT INTO sessoes_barbeiro (id, barbeiro_id, expires_at)
+      VALUES (?, ?, datetime('now', '+7 days'))
+    `)
+    .run(id, barbeiroId)
+  const row = getDb().prepare(`SELECT expires_at FROM sessoes_barbeiro WHERE id = ?`).get(id)
+  return { id, expires_at: row.expires_at }
+}
+
+export function getSessaoBarbeiro(sessionId) {
+  return getDb()
+    .prepare(`
+      SELECT * FROM sessoes_barbeiro
+      WHERE id = ? AND datetime(expires_at) >= datetime('now')
+    `)
+    .get(sessionId)
+}
+
+export function deletarSessaoBarbeiro(sessionId) {
+  const r = getDb().prepare(`DELETE FROM sessoes_barbeiro WHERE id = ?`).run(sessionId)
+  return r.changes > 0
+}
+
+export function limparSessoesExpiradas() {
+  const r = getDb()
+    .prepare(`DELETE FROM sessoes_barbeiro WHERE datetime(expires_at) < datetime('now')`)
+    .run()
+  return r.changes
+}
+
+export function calcularComissaoPeriodo(barbeiroId, dataInicio, dataFim) {
+  const rows = getDb()
+    .prepare(`
+      SELECT
+        a.id AS agendamento_id,
+        s.nome AS servico_nome,
+        s.preco AS valor_bruto,
+        COALESCE(co.pct, b.comissao_padrao_pct) AS pct_comissao
+      FROM agendamentos a
+      JOIN servicos s ON s.id = a.servico_id
+      JOIN barbeiros b ON b.id = a.staff_id
+      LEFT JOIN comissao_overrides co
+        ON co.barbeiro_id = a.staff_id AND co.servico_id = a.servico_id
+      WHERE a.staff_id = ?
+        AND a.status = 'concluido'
+        AND date(a.data_hora_inicio) >= date(?)
+        AND date(a.data_hora_inicio) <= date(?)
+      ORDER BY a.data_hora_inicio ASC
+    `)
+    .all(barbeiroId, dataInicio, dataFim)
+
+  return rows.map((r) => {
+    const pct = Number(r.pct_comissao) || 0
+    const bruto = Number(r.valor_bruto) || 0
+    const valor_comissao = bruto * (pct / 100)
+    return {
+      agendamento_id: r.agendamento_id,
+      servico_nome: r.servico_nome,
+      valor_bruto: bruto,
+      pct_comissao: pct,
+      valor_comissao,
+    }
+  })
+}
+
+/** Agendamentos confirmados sem presença/no-show, com fim há pelo menos 60 min (hora local). */
+export function getAgendamentosParaConcluir() {
+  return getDb()
+    .prepare(`
+      SELECT id, staff_id, servico_id, data_hora_fim, whatsapp_number
+      FROM agendamentos
+      WHERE status = 'confirmado'
+        AND presenca_confirmada_at IS NULL
+        AND no_show_marcado_at IS NULL
+        AND datetime(data_hora_fim) <= datetime('now', '-60 minutes', 'localtime')
+    `)
+    .all()
+}
+
+/** Marca como concluído pelo cron; só altera se ainda estiver confirmado. Retorna true se atualizou uma linha. */
+export function concluirAgendamentoAuto(id) {
+  const r = getDb()
+    .prepare(`
+      UPDATE agendamentos
+      SET status = 'concluido',
+          concluido_automatico = 1,
+          updated_at = datetime('now')
+      WHERE id = ? AND status = 'confirmado'
+    `)
+    .run(id)
+  return r.changes > 0
+}
+
+/** Recepção: cliente compareceu — conclui o agendamento e registra timestamp. */
+export function confirmarPresenca(agendamentoId) {
+  const r = getDb()
+    .prepare(`
+      UPDATE agendamentos
+      SET presenca_confirmada_at = datetime('now'),
+          status = 'concluido',
+          updated_at = datetime('now')
+      WHERE id = ? AND status = 'confirmado'
+    `)
+    .run(agendamentoId)
+  return r.changes > 0
+}
+
+/** Recepção: no-show manual — atualiza status e repete a lógica de registrarNoShow (contador do cliente). */
+export function marcarNaoCompareceu(agendamentoId) {
+  const ag = getDb().prepare(`SELECT * FROM agendamentos WHERE id = ?`).get(agendamentoId)
+  if (!ag) return false
+  const r = getDb()
+    .prepare(`
+      UPDATE agendamentos
+      SET no_show_marcado_at = datetime('now'),
+          status = 'no_show',
+          updated_at = datetime('now')
+      WHERE id = ? AND status = 'confirmado'
+    `)
+    .run(agendamentoId)
+  if (r.changes > 0 && ag.whatsapp_number) {
+    registrarNoShow(ag.whatsapp_number, agendamentoId)
+  }
+  return r.changes > 0
+}

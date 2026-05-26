@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import express from 'express'
+import bcrypt from 'bcryptjs'
 import {
   getAgendamentosDia, getFaturamentoDia, getHistoricoCliente,
   getProdutosEmEstoque, getAllConfigs, setConfig, getConfig,
@@ -9,6 +10,13 @@ import {
   criarServico, deletarServico, getServicoById,
   getAgendamentosAguardandoSinal, aprovarSinal, getAgendamento,
   enfileirarMensagem, getMetricasDiarias,
+  getBarbeiros, getBarbeiroById,
+  criarSessaoBarbeiro, getSessaoBarbeiro, deletarSessaoBarbeiro,
+  calcularComissaoPeriodo, getFechamentosByBarbeiro,
+  updateBarbeiro, getComissaoOverrides, setComissaoOverride,
+  criarFechamento, getFechamentosAbertos, registrarPagamentoFechamento,
+  criarDespesa, getDespesas, deletarDespesa, getFechamentoDetalhe,
+  confirmarPresenca, marcarNaoCompareceu,
 } from './db.mjs'
 import { deleteEvent, createEvent } from './calendar.mjs'
 import { criarAgendamentoTool } from './tools.mjs'
@@ -19,6 +27,76 @@ import { M } from './messages.mjs'
 const router = Router()
 const loginRouter = Router()
 const receptionRouter = Router()
+const barbeiroRouter = Router()
+
+/** Nome do cookie HTTP-only da sessão do barbeiro (7 dias, SameSite=Strict). */
+const COOKIE_BARBER_SESSION = 'barber_session'
+const BARBER_COOKIE_MAX_AGE_SEC = 7 * 24 * 60 * 60
+
+// ── Cookies (sem cookie-parser) ───────────────────────────────────
+function getCookie(req, name) {
+  const raw = req.headers.cookie
+  if (!raw) return null
+  const prefix = `${name}=`
+  for (const part of raw.split(';')) {
+    const s = part.trim()
+    if (s.startsWith(prefix)) return decodeURIComponent(s.slice(prefix.length).trim())
+  }
+  return null
+}
+
+function setBarberSessionCookie(res, sessionId) {
+  res.setHeader(
+    'Set-Cookie',
+    `${COOKIE_BARBER_SESSION}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${BARBER_COOKIE_MAX_AGE_SEC}; HttpOnly; SameSite=Strict`,
+  )
+}
+
+function clearBarberSessionCookie(res) {
+  res.setHeader(
+    'Set-Cookie',
+    `${COOKIE_BARBER_SESSION}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict`,
+  )
+}
+
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/**
+ * Protege rotas /barbeiro/*: exige sessão válida em sessoes_barbeiro.
+ * Preenche req.barbeiro = { id, nome, comissao_padrao_pct, sessionId }.
+ */
+function requireBarbeiro(req, res, next) {
+  const sessionId = getCookie(req, COOKIE_BARBER_SESSION)
+  if (!sessionId) {
+    return res.redirect('/painel/login')
+  }
+  const sess = getSessaoBarbeiro(sessionId)
+  if (!sess) {
+    clearBarberSessionCookie(res)
+    return res.redirect('/painel/login')
+  }
+  const b = getBarbeiroById(sess.barbeiro_id)
+  if (!b || !b.ativo) {
+    deletarSessaoBarbeiro(sessionId)
+    clearBarberSessionCookie(res)
+    return res.redirect('/painel/login')
+  }
+  req.barbeiro = {
+    id: b.id,
+    nome: b.nome,
+    comissao_padrao_pct: b.comissao_padrao_pct,
+    sessionId,
+  }
+  next()
+}
+
+barbeiroRouter.use(requireBarbeiro)
 
 const SECRET           = process.env.PANEL_SECRET    || 'painel-andy-regua-2024'
 const RECEPTION_SECRET = process.env.RECEPTION_SECRET || 'recepcao-andy-regua-2024'
@@ -61,6 +139,24 @@ function formatData(iso) {
 
 function hojeStr() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
+}
+
+/** Categorias sugeridas para despesas (schema aceita texto livre). */
+const CATEGORIAS_DESPESA = ['outros', 'aluguel', 'marketing', 'materiais', 'pessoal', 'utilidades', 'impostos']
+
+function formatDataHoraPainel(sqliteDt) {
+  if (!sqliteDt) return '—'
+  const s = String(sqliteDt).trim()
+  const asIso = /^\d{4}-\d{2}-\d{2} \d/.test(s)
+    ? `${s.replace(' ', 'T')}-03:00`
+    : s
+  try {
+    const d = new Date(asIso)
+    if (Number.isNaN(d.getTime())) return s
+    return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' })
+  } catch {
+    return s
+  }
 }
 
 function initials(nome) {
@@ -172,6 +268,7 @@ html,body{height:100%;background:var(--bg);color:var(--white);font-family:'Inter
   padding:.9rem 1rem;border-top:1px solid rgba(255,255,255,0.05);
   font-size:.74rem;color:var(--muted);display:flex;align-items:center;gap:.5rem
 }
+.nav-label-finance{padding:.85rem 1.25rem .35rem;margin-top:.5rem;border-top:1px solid rgba(255,255,255,0.06)}
 .pulse{
   width:6px;height:6px;background:var(--green);border-radius:50%;flex-shrink:0;
   box-shadow:0 0 0 0 rgba(34,197,94,.4),0 0 6px rgba(34,197,94,0.6);animation:pulse 2s infinite
@@ -297,6 +394,7 @@ tbody tr:hover td{background:rgba(255,255,255,0.02)}
 .agenda-aside{display:flex;align-items:center;gap:14px}
 .agenda-price{font-size:.94rem;font-weight:700;color:var(--green);min-width:70px;text-align:right;font-variant-numeric:tabular-nums}
 .agenda-price.cancelled{color:var(--muted2);text-decoration:line-through}
+.agenda-presenca-row{border-top:1px solid var(--border);margin-top:.75rem;padding-top:.75rem}
 
 /* ── PRODUCT CARDS ── */
 .product-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
@@ -455,10 +553,154 @@ hr{border:none;border-top:1px solid var(--border);margin:1.1rem 0}
 }
 `
 
+/* ── Painel do barbeiro (mobile-first, acento azul) ── */
+const CSS_BARBER = `
+.barber-app{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;background:var(--bg)}
+.barber-header{
+  position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:.75rem;
+  padding:.85rem 1rem;background:var(--surface);border-bottom:1px solid var(--border)
+}
+.barber-header-greet{font-size:.95rem;font-weight:600;color:var(--white);line-height:1.3}
+.barber-header-greet span{display:block;font-size:.72rem;font-weight:500;color:var(--muted);margin-top:.15rem}
+.barber-header-actions{display:flex;align-items:center;gap:.5rem;flex-shrink:0}
+.barber-logout{
+  min-height:44px;min-width:44px;padding:0 .85rem;display:inline-flex;align-items:center;justify-content:center;
+  background:transparent;border:1px solid var(--border2);border-radius:var(--radius-sm);
+  color:var(--muted);font-size:.78rem;font-weight:500;cursor:pointer;font-family:inherit;text-decoration:none
+}
+.barber-logout:active{background:var(--hover);color:var(--white)}
+.barber-body-wrap{flex:1;display:flex;min-height:0;width:100%}
+.barber-sidebar{
+  display:none;width:var(--sidebar-w);flex-shrink:0;background:var(--surface);
+  border-right:1px solid var(--border);flex-direction:column;padding:1rem .65rem
+}
+.barber-sidebar .nav-item.active{color:var(--blue-l);background:var(--blue-dim);border-left-color:var(--blue)}
+.barber-main{
+  flex:1;overflow-y:auto;overflow-x:hidden;width:100%;
+  padding:1rem 1rem calc(5.5rem + env(safe-area-inset-bottom));
+  max-width:480px;margin:0 auto
+}
+.barber-page-title{font-size:.95rem;font-weight:700;color:var(--white);margin-bottom:.85rem;letter-spacing:-.02em}
+.barber-footer{
+  text-align:center;padding:.65rem 1rem calc(.35rem + env(safe-area-inset-bottom));
+  font-size:.68rem;color:var(--muted2);border-top:1px solid var(--border);background:var(--surface)
+}
+.barber-footer a{color:var(--blue-l);text-decoration:none}
+.barber-nav-bottom{
+  position:fixed;left:0;right:0;bottom:0;z-index:40;display:flex;
+  background:var(--surface);border-top:1px solid var(--border2);
+  padding-bottom:env(safe-area-inset-bottom)
+}
+.bb-nav-item{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.2rem;
+  min-height:56px;padding:.45rem .25rem;text-decoration:none;color:var(--muted);font-size:.62rem;font-weight:600;
+  -webkit-tap-highlight-color:transparent
+}
+.bb-nav-item svg{opacity:.65}
+.bb-nav-item.active{color:var(--blue-l);background:var(--blue-dim)}
+.bb-nav-item.active svg{opacity:1}
+.bb-section{margin-bottom:1.25rem}
+.bb-section-title{font-size:.95rem;font-weight:700;margin-bottom:.75rem;color:var(--white)}
+.bb-card{
+  background:var(--elevated);border:1px solid var(--border);border-radius:12px;
+  padding:1rem;margin-bottom:.75rem
+}
+.bb-card-row{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.35rem}
+.bb-time{font-size:1rem;font-weight:700;font-variant-numeric:tabular-nums;color:var(--white)}
+.bb-card-title{font-size:.88rem;font-weight:600;color:var(--white);margin-bottom:.25rem}
+.bb-card-meta{font-size:.78rem;color:var(--muted);line-height:1.4}
+.bb-money{color:var(--green);font-weight:600}
+.bb-empty{text-align:center;padding:2rem 1rem;color:var(--muted);font-size:.82rem}
+.bb-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+.bb-stat{
+  background:var(--elevated);border:1px solid var(--border);border-radius:12px;padding:1rem
+}
+.bb-stat-lbl{font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:.35rem}
+.bb-stat-val{font-size:1.4rem;font-weight:700;color:var(--blue-l);font-variant-numeric:tabular-nums;line-height:1.1}
+.bb-stat-val.sm{font-size:1.05rem}
+.bb-muted{font-size:.75rem;color:var(--muted);margin-top:.35rem}
+.bb-link{
+  display:inline-flex;align-items:center;min-height:44px;margin-top:.65rem;
+  color:var(--blue-l);font-size:.84rem;font-weight:600;text-decoration:none
+}
+.bb-alert{
+  display:flex;align-items:flex-start;gap:.5rem;padding:.75rem;border-radius:12px;margin-top:.75rem;
+  background:var(--amber-dim);border:1px solid rgba(245,158,11,.35);color:var(--amber);font-size:.78rem;line-height:1.4
+}
+.bb-toolbar{display:flex;flex-direction:column;gap:.75rem;margin-bottom:1rem}
+.bb-toolbar input[type=date]{min-height:44px;font-size:16px}
+.bb-pills{display:flex;flex-wrap:wrap;gap:.5rem}
+.bb-pill{
+  min-height:44px;padding:0 .85rem;display:inline-flex;align-items:center;border-radius:999px;
+  border:1px solid var(--border2);background:var(--elevated);color:var(--muted);
+  font-size:.78rem;font-weight:600;text-decoration:none;cursor:pointer;font-family:inherit;
+  -webkit-tap-highlight-color:transparent
+}
+.bb-pill.active,.bb-pill[aria-pressed=true]{background:var(--blue-dim);border-color:var(--blue);color:var(--blue-l)}
+.bb-pill:active{background:var(--hover)}
+.bb-ranking{
+  background:linear-gradient(135deg,var(--blue-dim),transparent);border:1px solid rgba(37,99,235,.25);
+  border-radius:12px;padding:1rem;margin-bottom:1rem;font-size:.88rem;color:var(--white)
+}
+.bb-ranking strong{color:var(--blue-l)}
+.bb-servico-row{
+  display:flex;justify-content:space-between;align-items:center;gap:.5rem;padding:.65rem 0;
+  border-bottom:1px solid var(--border);font-size:.82rem
+}
+.bb-servico-row:last-child{border-bottom:none}
+.bb-atend-item{
+  background:var(--elevated);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:.75rem
+}
+.bb-atend-top{display:flex;justify-content:space-between;align-items:flex-start;gap:.5rem;margin-bottom:.35rem}
+.bb-atend-date{font-size:.72rem;color:var(--muted)}
+.bb-fech-card{
+  background:var(--elevated);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:.75rem
+}
+.bb-fech-row{display:flex;justify-content:space-between;font-size:.82rem;margin-top:.35rem;color:var(--muted)}
+.bb-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-height:44px;margin:.75rem 0}
+.bb-toggle{
+  min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--border2);
+  background:var(--elevated);color:var(--muted);font-size:.78rem;font-weight:600;cursor:pointer;font-family:inherit
+}
+.bb-toggle.on{background:var(--blue-dim);border-color:var(--blue);color:var(--blue-l)}
+.bb-load-more{
+  width:100%;min-height:44px;margin-top:.5rem;border-radius:12px;border:1px solid var(--border2);
+  background:var(--elevated);color:var(--blue-l);font-weight:600;font-size:.84rem;cursor:pointer;font-family:inherit
+}
+.bb-period-btns{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem}
+.bb-period-btns .bb-pill{font-size:.72rem;padding:0 .65rem}
+.bb-date-range{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.finance-dlg{border:none;border-radius:12px;padding:0;background:var(--surface);color:var(--white);border:1px solid var(--border);max-width:440px;width:calc(100% - 2rem);box-shadow:0 24px 48px rgba(0,0,0,.45)}
+.finance-dlg::backdrop{background:rgba(0,0,0,.68)}
+.fin-dlg-hd{padding:.9rem 1.15rem;border-bottom:1px solid var(--border);font-weight:700;font-size:.92rem}
+.fin-dlg-bd{padding:1.1rem 1.15rem;display:flex;flex-direction:column;gap:.85rem}
+.fin-dlg-ft{padding:.85rem 1.15rem;border-top:1px solid var(--border);display:flex;gap:.5rem;justify-content:flex-end;flex-wrap:wrap}
+.fin-cards{display:grid;gap:.85rem;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));margin-bottom:1.25rem}
+.fin-mini{color:var(--muted);font-size:.72rem;margin-top:.2rem}
+.badge-fin-err{display:inline-flex;align-items:center;background:rgba(204,31,31,.14);color:#f87171;border-radius:8px;padding:2px 8px;font-size:.68rem;font-weight:700}
+@media(min-width:769px){
+  .barber-nav-bottom{display:none}
+  .barber-sidebar{display:flex}
+  .barber-main{padding:1.25rem 1.5rem 1.5rem;max-width:480px}
+  .barber-header{padding-left:0}
+}
+`
+
 // ── Page Shell ─────────────────────────────────────────────────────
+function isSidebarNavActive(page, navId) {
+  if (navId.startsWith('financeiro/')) return page === navId
+  if (navId === 'financeiro') return page === 'financeiro'
+  return page === navId || page.startsWith(`${navId}/`)
+}
+
+function navItemHtml(secret, page, item) {
+  const active = isSidebarNavActive(page, item.id) ? 'active' : ''
+  return `<a href="/${secret}/${item.id}" class="nav-item ${active}">${item.icon}<span>${item.label}</span></a>`
+}
+
 function shell(page, title, subtitle, body, script = '', secret = SECRET) {
   const isReception = secret === RECEPTION_SECRET
-  const navFull = [
+  const navPrincipal = [
     { id:'agenda',                 label:'Agenda',       icon:ic.cal },
     { id:'agenda/agendar-manual',  label:'Ag. Manual',   icon:ic.plus },
     { id:'faturamento',            label:'Faturamento',  icon:ic.money },
@@ -469,15 +711,27 @@ function shell(page, title, subtitle, body, script = '', secret = SECRET) {
     { id:'aprovar-sinais',         label:'Sinais Pix',   icon:ic.money },
     { id:'eventos-bot',            label:'Métricas',     icon:ic.chart },
   ]
+  const navFinanceiro = [
+    { id:'financeiro',              label:'Financeiro',           icon:ic.money },
+    { id:'financeiro/comissoes',    label:'Comissões',           icon:ic.chart },
+    { id:'financeiro/fechamentos',  label:'Fechamentos',         icon:ic.check },
+    { id:'financeiro/despesas',     label:'Despesas',            icon:ic.box },
+  ]
   const navReception = [
     { id:'agenda',                label:'Agenda',       icon:ic.cal },
     { id:'agenda/agendar-manual', label:'Ag. Manual',   icon:ic.plus },
+    { id:'despesas',              label:'Despesas',     icon:ic.box },
   ]
-  const nav = isReception ? navReception : navFull
 
-  const navHtml = nav.map(n =>
-    `<a href="/${secret}/${n.id}" class="nav-item ${page===n.id||page===n.id.split('/')[0]&&n.id.includes('/')&&page===n.id?'active':page===n.id?'active':''}">${n.icon}<span>${n.label}</span></a>`
-  ).join('')
+  let navHtml = ''
+  if (isReception) {
+    navHtml += `<div class="nav-label">Menu</div>${navReception.map((n) => navItemHtml(secret, page, n)).join('')}`
+  }
+  else {
+    navHtml += `<div class="nav-label">Menu</div>${navPrincipal.map((n) => navItemHtml(secret, page, n)).join('')}`
+    navHtml += `<div class="nav-label nav-label-finance">${ic.chart} Financeiro</div>`
+    navHtml += navFinanceiro.map((n) => navItemHtml(secret, page, n)).join('')
+  }
 
   const hora = new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit', timeZone:'America/Sao_Paulo' })
   const dataHoje = new Date().toLocaleDateString('pt-BR', { weekday:'short', day:'2-digit', month:'short', timeZone:'America/Sao_Paulo' })
@@ -550,6 +804,553 @@ ${script}
 </body></html>`
 }
 
+function fmtBRL(valor) {
+  const n = Number(valor) || 0
+  return `R$ ${n.toFixed(2).replace('.', ',')}`
+}
+
+/** Igual ao filtro temporal de `getFaturamentoPeriodo` — só agendamentos concluídos. */
+function sqlWherePeriodoTipoConcluidos(tipo, alias = 'a') {
+  const col = `${alias}.data_hora_inicio`
+  if (tipo === 'semana') return `date(${col}, 'localtime') >= date('now', '-6 days', 'localtime')`
+  if (tipo === 'mes') return `strftime('%Y-%m', ${col}, 'localtime') = strftime('%Y-%m', 'now', 'localtime')`
+  return `strftime('%Y', ${col}, 'localtime') = strftime('%Y', 'now', 'localtime')`
+}
+
+/** Ranking por produtividade — concluídos no período (mesma semântica das abas existentes). */
+function getRankingProdutividadeAdministrativo(tipo) {
+  const w = sqlWherePeriodoTipoConcluidos(tipo)
+  const det = getDb()
+    .prepare(`
+      SELECT a.staff_id, b.nome AS barbeiro_nome,
+        s.id AS servico_id, s.nome AS servico_nome,
+        COUNT(*) AS qtd,
+        SUM(COALESCE(s.preco, 0)) AS sub_total
+      FROM agendamentos a
+      JOIN barbeiros b ON b.id = a.staff_id
+      LEFT JOIN servicos s ON s.id = a.servico_id
+      WHERE a.status = 'concluido'
+        AND ${w}
+      GROUP BY a.staff_id, s.id
+    `)
+    .all()
+  const porId = {}
+  for (const r of det) {
+    if (!porId[r.staff_id]) porId[r.staff_id] = { nome: r.barbeiro_nome, atendimentos: 0, total: 0, servicos: [] }
+    porId[r.staff_id].atendimentos += r.qtd
+    porId[r.staff_id].total += r.sub_total
+    porId[r.staff_id].servicos.push({ nome: r.servico_nome || String(r.servico_id || ''), sub: r.sub_total })
+  }
+  return Object.entries(porId)
+    .map(([staff_id, o]) => {
+      let top = '—'
+      let maxSub = -1
+      for (const z of o.servicos) if (z.sub > maxSub) { maxSub = z.sub; top = z.nome }
+      const at = o.atendimentos
+      const tot = o.total
+      return { staff_id, nome: o.nome, atendimentos: at, total_bruto: tot, ticket_medio: at ? tot / at : 0, top_servico: top }
+    })
+    .sort((a, b) => b.total_bruto - a.total_bruto)
+    .map((row, idx) => ({ ...row, posicao: idx + 1 }))
+}
+
+/** Faturamento agregado por barbeiro (aba Por Barbeiro) — período igual ao geral. */
+function getFaturamentoPorBarbeiroAdministrativo(tipo) {
+  return getRankingProdutividadeAdministrativo(tipo)
+}
+
+function primeiroDiaMesAtualBR() {
+  const h = hojeStr()
+  return `${h.slice(0, 8)}01`
+}
+
+/** Segunda-feira da semana corrente (calendário local do servidor — alinhado ao uso de datas YYYY-MM-DD). */
+function primeiroDiaSemanaAtualBR() {
+  const [y, mo, da] = hojeStr().split('-').map(Number)
+  const d = new Date(y, mo - 1, da)
+  const dow = d.getDay()
+  const monOffset = dow === 0 ? -6 : 1 - dow
+  d.setDate(d.getDate() + monOffset)
+  const yy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yy}-${mm}-${dd}`
+}
+
+function sumDespesasPeriodo(de, ate) {
+  const r = getDb()
+    .prepare(`SELECT COALESCE(SUM(valor), 0) AS t FROM despesas WHERE date(data) >= date(?) AND date(data) <= date(?)`)
+    .get(de, ate)
+  return Number(r?.t) || 0
+}
+
+function sumReceitaConcluidosPeriodo(de, ate) {
+  const row = getDb()
+    .prepare(`
+      SELECT COALESCE(SUM(s.preco), 0) AS t
+      FROM agendamentos a
+      LEFT JOIN servicos s ON s.id = a.servico_id
+      WHERE a.status = 'concluido'
+        AND date(a.data_hora_inicio) >= date(?)
+        AND date(a.data_hora_inicio) <= date(?)
+    `)
+    .get(de, ate)
+  return row?.t || 0
+}
+
+function sumComissoesFechamentosAbertos() {
+  const rows = getFechamentosAbertos()
+  return rows.reduce((s, f) => s + Number(f.total_comissao || 0), 0)
+}
+
+/** Últimas 4 semanas (intervalos de 7 dias até hoje, localtime), fat. concluído por barbeiro. */
+function getFaturamento4SemanasPorBarbeiro() {
+  const barbeiros = getBarbeiros()
+  const totais = []
+  let maxVal = 1
+  for (let wi = 0; wi < 4; wi++) {
+    const fromD = -(27 - wi * 7)
+    const toD = fromD + 6
+    const dr = getDb()
+      .prepare(`
+        SELECT date('now','localtime', ?) AS de,
+               date('now','localtime', ?) AS ate
+      `)
+      .get(`${fromD} days`, `${toD} days`)
+    const de = dr.de
+    const ate = dr.ate
+    const porBarbra = {}
+    for (const b of barbeiros) {
+      porBarbra[b.id] = Number(
+        getDb()
+          .prepare(`
+            SELECT COALESCE(SUM(s.preco),0) AS t
+            FROM agendamentos a LEFT JOIN servicos s ON s.id = a.servico_id
+            WHERE a.status='concluido' AND a.staff_id=? AND date(a.data_hora_inicio)>=date(?)
+              AND date(a.data_hora_inicio)<=date(?)
+          `)
+          .get(b.id, de, ate).t || 0,
+      )
+    }
+    const maxSem = Math.max(...Object.values(porBarbra), 0)
+    if (maxSem > maxVal) maxVal = maxSem
+    totais.push({ de, ate, porBarbra })
+  }
+
+  const cores = ['#cc1f1f', '#2563eb', '#22c55e', '#f59e0b', '#a855f7', '#eab308']
+  return { barbeiros, totais, maxVal: Math.max(maxVal, 1), cores }
+}
+
+/** Gera SVG de barras agrupadas (sem biblioteca externa). */
+function renderSvgBarrasFinanceiro(barbeiros, totais, maxVal, cores) {
+  const W = 600
+  const H = 200
+  const padL = 80
+  const padB = 32
+  const padT = 12
+  const chartW = W - padL - 16
+  const chartH = H - padB - padT
+  const groupGap = 8
+  const nG = Math.max(totais.length, 1)
+  const groupW = (chartW - groupGap * (nG + 1)) / nG
+  const bw = Math.max(6, Math.min(18, (groupW - 4) / Math.max(barbeiros.length, 1)))
+
+  const legend = barbeiros
+    .map(
+      (b, i) => `
+    <rect x="${10 + i * 120}" y="4" width="10" height="10" rx="2" fill="${cores[i % cores.length]}" />
+    <text x="${24 + i * 120}" y="13" fill="#888" font-size="11" font-family="Inter,sans-serif">${escapeHtml(b.nome.slice(0, 18))}</text>`,
+    )
+    .join('')
+
+  let bars = ''
+  totais.forEach((sem, wi) => {
+    const gx = padL + groupGap + wi * (groupW + groupGap)
+    barbeiros.forEach((b, bi) => {
+      const v = Number(sem.porBarbra[b.id] || 0)
+      const bh = chartH * (v / maxVal)
+      const x = gx + bi * (bw + 2)
+      const y = padT + chartH - bh
+      bars += `<rect x="${x}" y="${y}" width="${bw}" height="${Math.max(bh, 0.5)}" rx="2" fill="${cores[bi % cores.length]}" opacity="0.85" />`
+    })
+    bars += `<text x="${gx + groupW / 2 - 28}" y="${H - 8}" fill="#888" font-size="10" font-family="Inter,sans-serif">Sem ${wi + 1}</text>`
+  })
+
+  const meioLinha = `
+    <line x1="${padL}" y1="${padT + chartH / 2}" x2="${W - 16}" y2="${padT + chartH / 2}"
+      stroke="rgba(255,255,255,0.06)" stroke-width="1" />
+    <text x="4" y="${padT + chartH / 2 + 4}" fill="#666" font-size="10" font-family="Inter,sans-serif">${escapaMilValorEscala(maxVal)}</text>`
+
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}px" xmlns="http://www.w3.org/2000/svg" style="overflow:visible;display:block">${legend}<rect x="${padL}" y="${padT}" width="${chartW}" height="${chartH}" fill="rgba(255,255,255,0.02)" rx="6" stroke="rgba(255,255,255,0.08)"/>${meioLinha}${bars}<text x="4" y="${padT + chartH + 12}" fill="#666" font-size="10" font-family="Inter,sans-serif">0</text></svg>`
+}
+
+/** Texto truncado pra eixo SVG (valor máximo como referência €). */
+function escapaMilValorEscala(maxVal) {
+  return `${Math.round(Number(maxVal) || 0).toLocaleString('pt-BR')}`
+}
+
+function atualizarObsFechamento(id, texto) {
+  if (texto == null || String(texto).trim() === '') return
+  getDb().prepare(`UPDATE fechamentos SET obs = ?, updated_at = datetime('now') WHERE id = ?`).run(texto.trim(), id)
+}
+
+function enqueueWhatsAppPagamento(barbeiro, fechamento, count, pct) {
+  const w = (barbeiro?.whatsapp || '').replace(/\s/g, '')
+  if (!w) return
+  const apenasNum = w.replace(/^\+/, '').replace(/@.+$/, '').replace(/\D/g, '')
+  if (!apenasNum || apenasNum.length < 10) return
+  const jid = apenasNum.endsWith('@c.us') ? apenasNum : `${apenasNum}@c.us`
+  const dataInicio = fechamento.periodo_inicio
+  const dataFim = fechamento.periodo_fim
+  const bruto = Number(fechamento.total_bruto || 0).toFixed(2).replace('.', ',')
+  const comissao = Number(fechamento.total_comissao || 0).toFixed(2).replace('.', ',')
+  const dataHoje = new Date().toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short', timeZone:'America/Sao_Paulo' })
+  const msg = `✅ Fechamento processado!
+
+Período: ${dataInicio} a ${dataFim}
+Atendimentos: ${count}
+Total bruto: R$ ${bruto}
+Sua comissão (${pct}%): R$ ${comissao}
+
+Pagamento registrado em ${dataHoje}.
+
+Qualquer dúvida, fala com Andy 👊`
+  enfileirarMensagem(jid, msg, 'critica')
+}
+
+/** Calcula linhas no período e cria fechamento + fechamento_agendamentos no banco. */
+function criarFechamentoComCalculo(barbeiroId, periodoInicio, periodoFim) {
+  const linhas = calcularComissaoPeriodo(barbeiroId, periodoInicio, periodoFim)
+  if (!linhas.length) return { erro: 'Nenhum atendimento concluído neste período.' }
+  const total_bruto = linhas.reduce((s, l) => s + Number(l.valor_bruto || 0), 0)
+  const total_comissao = linhas.reduce((s, l) => s + Number(l.valor_comissao || 0), 0)
+  const pct_aplicado = total_bruto > 0 ? (total_comissao / total_bruto) * 100 : 0
+  const fechamento = criarFechamento({
+    barbeiro_id: barbeiroId,
+    periodo_inicio: periodoInicio,
+    periodo_fim: periodoFim,
+    total_bruto,
+    total_comissao,
+    pct_aplicado,
+    status: 'aberto',
+  })
+  const ins = getDb().prepare(`
+    INSERT INTO fechamento_agendamentos (fechamento_id, agendamento_id, servico_nome, valor_bruto, pct_comissao, valor_comissao)
+    VALUES (?,?,?,?,?,?)
+  `)
+  for (const ln of linhas) {
+    ins.run(fechamento.id, ln.agendamento_id, ln.servico_nome, ln.valor_bruto, ln.pct_comissao, ln.valor_comissao)
+  }
+  return { fechamento, count: linhas.length }
+}
+
+function listarFechamentosAdministrativo(statusFiltro, barbeiroId) {
+  let sql = `
+    SELECT f.*, b.nome AS barbeiro_nome,
+      (SELECT COUNT(*) FROM fechamento_agendamentos fa WHERE fa.fechamento_id = f.id) AS n_atendimentos
+    FROM fechamentos f
+    JOIN barbeiros b ON b.id = f.barbeiro_id
+    WHERE 1=1
+  `
+  const p = []
+  if (statusFiltro === 'aberto') sql += ` AND f.status = 'aberto'`
+  if (statusFiltro === 'pago') sql += ` AND f.status = 'pago'`
+  if (barbeiroId) { sql += ` AND f.barbeiro_id = ?`; p.push(barbeiroId) }
+  sql += ` ORDER BY f.id DESC LIMIT 200`
+  return getDb().prepare(sql).all(...p)
+}
+
+/** Data inicial padrão do resumo financeiro do barbeiro (dia seguinte ao último fechamento ou 1º do mês). */
+function getInicioPeriodoFinanceiro(barbeiroId) {
+  const ultimo = getDb()
+    .prepare(`
+      SELECT periodo_fim FROM fechamentos
+      WHERE barbeiro_id = ?
+      ORDER BY periodo_fim DESC
+      LIMIT 1
+    `)
+    .get(barbeiroId)
+  if (ultimo?.periodo_fim) {
+    const d = new Date(`${ultimo.periodo_fim}T12:00:00`)
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().slice(0, 10)
+  }
+  const hoje = hojeStr()
+  return `${hoje.slice(0, 8)}01`
+}
+
+function getRankingPosicao(barbeiroId, de, ate) {
+  const rows = getDb()
+    .prepare(`
+      SELECT a.staff_id, SUM(COALESCE(s.preco, 0)) AS total
+      FROM agendamentos a
+      LEFT JOIN servicos s ON s.id = a.servico_id
+      WHERE a.status = 'concluido'
+        AND date(a.data_hora_inicio) >= date(?)
+        AND date(a.data_hora_inicio) <= date(?)
+        AND a.staff_id IN (SELECT id FROM barbeiros WHERE ativo = 1)
+      GROUP BY a.staff_id
+      ORDER BY total DESC
+    `)
+    .all(de, ate)
+  const totalBarbeiros = Math.max(getBarbeiros().filter((b) => b.ativo).length, 1)
+  const idx = rows.findIndex((r) => r.staff_id === barbeiroId)
+  return { posicao: idx >= 0 ? idx + 1 : totalBarbeiros, total: totalBarbeiros }
+}
+
+/** Dados financeiros do período (atendimentos concluídos + resumo + ranking + fechamentos). */
+function buildFinanceiroDados(barbeiroId, de, ate) {
+  const barbeiro = getBarbeiroById(barbeiroId)
+  const pctPadrao = Number(barbeiro?.comissao_padrao_pct) || 0
+  const comissoes = calcularComissaoPeriodo(barbeiroId, de, ate)
+
+  let metaRows = []
+  if (comissoes.length) {
+    const ids = comissoes.map((c) => c.agendamento_id)
+    metaRows = getDb()
+      .prepare(`
+        SELECT a.id AS agendamento_id, a.data_hora_inicio, c.nome AS cliente_nome
+        FROM agendamentos a
+        LEFT JOIN clientes c ON c.whatsapp_number = a.whatsapp_number
+        WHERE a.id IN (${ids.map(() => '?').join(',')})
+      `)
+      .all(...ids)
+  }
+  const metaMap = Object.fromEntries(metaRows.map((r) => [r.agendamento_id, r]))
+
+  const atendimentos = comissoes.map((c) => {
+    const meta = metaMap[c.agendamento_id] || {}
+    return {
+      agendamento_id: c.agendamento_id,
+      data: meta.data_hora_inicio ? String(meta.data_hora_inicio).slice(0, 10) : '',
+      horario: formatHora(meta.data_hora_inicio),
+      data_hora_inicio: meta.data_hora_inicio || '',
+      cliente: meta.cliente_nome || 'Cliente',
+      servico_nome: c.servico_nome,
+      valor_bruto: c.valor_bruto,
+      pct_comissao: c.pct_comissao,
+      valor_comissao: c.valor_comissao,
+    }
+  }).sort((a, b) => String(b.data_hora_inicio).localeCompare(String(a.data_hora_inicio)))
+
+  const total_bruto = atendimentos.reduce((s, a) => s + a.valor_bruto, 0)
+  const total_comissao = atendimentos.reduce((s, a) => s + a.valor_comissao, 0)
+  const qtd = atendimentos.length
+  const ranking = getRankingPosicao(barbeiroId, de, ate)
+
+  const servicoMap = {}
+  for (const a of atendimentos) {
+    if (!servicoMap[a.servico_nome]) {
+      servicoMap[a.servico_nome] = { nome: a.servico_nome, quantidade: 0, total_bruto: 0 }
+    }
+    servicoMap[a.servico_nome].quantidade += 1
+    servicoMap[a.servico_nome].total_bruto += a.valor_bruto
+  }
+  const top_servicos = Object.values(servicoMap)
+    .sort((a, b) => b.total_bruto - a.total_bruto)
+    .slice(0, 3)
+
+  const fechamentos = getFechamentosByBarbeiro(barbeiroId, 20).filter((f) => {
+    const limite = new Date()
+    limite.setMonth(limite.getMonth() - 3)
+    const fim = new Date(`${f.periodo_fim}T12:00:00`)
+    return fim >= limite
+  })
+
+  return {
+    resumo: {
+      de,
+      ate,
+      total_bruto,
+      total_comissao,
+      atendimentos: qtd,
+      ticket_medio: qtd ? total_bruto / qtd : 0,
+      comissao_pct: pctPadrao,
+      comissao_nao_configurada: pctPadrao === 0,
+    },
+    atendimentos,
+    top_servicos,
+    ranking_posicao: ranking.posicao,
+    ranking_total: ranking.total,
+    fechamentos,
+  }
+}
+
+function getAgendamentosBarbeiroDia(data, staffId, statusFiltro = 'todos') {
+  let query = `
+    SELECT a.*, c.nome AS nome_cliente, c.no_show_count,
+           s.nome AS servico_nome, s.preco AS servico_preco, s.duracao_minutos
+    FROM agendamentos a
+    LEFT JOIN clientes c ON c.whatsapp_number = a.whatsapp_number
+    LEFT JOIN servicos s ON s.id = a.servico_id
+    WHERE date(a.data_hora_inicio) = ?
+      AND a.staff_id = ?
+  `
+  const params = [data, staffId]
+  if (statusFiltro === 'confirmado') query += ` AND a.status = 'confirmado'`
+  else if (statusFiltro === 'concluido') query += ` AND a.status = 'concluido'`
+  else if (statusFiltro === 'no-show') query += ` AND a.status = 'no_show'`
+  else query += ` AND a.status IN ('confirmado', 'concluido', 'no_show')`
+  query += ` ORDER BY a.data_hora_inicio ASC`
+  return getDb().prepare(query).all(...params)
+}
+
+function renderBarbeiroAgendaCard(ag) {
+  const preco = ag.servico_preco || 0
+  return `
+  <article class="bb-card">
+    <div class="bb-card-row">
+      <time class="bb-time">${formatHora(ag.data_hora_inicio)}</time>
+      ${badge(ag.status)}
+    </div>
+    <div class="bb-card-title">${escapeHtml(ag.nome_cliente || 'Sem nome')}</div>
+    <div class="bb-card-meta">${escapeHtml(ag.servico_nome || ag.servico_id)} · <span class="bb-money">${fmtBRL(preco)}</span></div>
+  </article>`
+}
+
+function renderBarbeiroAgendaLista(ags, vazioMsg) {
+  if (!ags.length) return `<div class="bb-empty">${escapeHtml(vazioMsg)}</div>`
+  return ags.map(renderBarbeiroAgendaCard).join('')
+}
+
+function renderResumoFinanceiroHtml(dados, comLinkDetalhes = true) {
+  const r = dados.resumo
+  const aviso = r.comissao_nao_configurada
+    ? `<div class="bb-alert">${ic.warn} Percentual não configurado — fale com Andy</div>`
+    : `<p class="bb-muted">Comissão estimada (${r.comissao_pct}%)</p>`
+  return `
+  <section class="bb-section">
+    <h2 class="bb-section-title">Resumo financeiro</h2>
+    <p class="bb-muted" style="margin:-.35rem 0 .75rem;font-size:.72rem">${formatData(r.de + 'T12:00:00')} — ${formatData(r.ate + 'T12:00:00')}</p>
+    <div class="bb-stat-grid">
+      <div class="bb-stat">
+        <div class="bb-stat-lbl">Total bruto</div>
+        <div class="bb-stat-val">${fmtBRL(r.total_bruto)}</div>
+      </div>
+      <div class="bb-stat">
+        <div class="bb-stat-lbl">Comissão est.</div>
+        <div class="bb-stat-val">${fmtBRL(r.total_comissao)}</div>
+      </div>
+      <div class="bb-stat">
+        <div class="bb-stat-lbl">Atendimentos</div>
+        <div class="bb-stat-val sm">${r.atendimentos}</div>
+      </div>
+      <div class="bb-stat">
+        <div class="bb-stat-lbl">Ticket médio</div>
+        <div class="bb-stat-val sm">${fmtBRL(r.ticket_medio)}</div>
+      </div>
+    </div>
+    ${aviso}
+    ${comLinkDetalhes ? '<a href="/barbeiro/financeiro" class="bb-link">Ver detalhes →</a>' : ''}
+  </section>`
+}
+
+function calcularPeriodoRapido(tipo) {
+  const hoje = hojeStr()
+  const parts = hoje.split('-').map(Number)
+  const base = new Date(parts[0], parts[1] - 1, parts[2])
+  const fmt = (d) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  if (tipo === 'semana') {
+    const de = new Date(base)
+    const dow = de.getDay()
+    const diff = dow === 0 ? 6 : dow - 1
+    de.setDate(de.getDate() - diff)
+    return { de: fmt(de), ate: hoje }
+  }
+  if (tipo === 'mes') {
+    return { de: `${parts[0]}-${String(parts[1]).padStart(2, '0')}-01`, ate: hoje }
+  }
+  if (tipo === 'mes_anterior') {
+    const de = new Date(parts[0], parts[1] - 2, 1)
+    const ate = new Date(parts[0], parts[1] - 1, 0)
+    return { de: fmt(de), ate: fmt(ate) }
+  }
+  if (tipo === '3meses') {
+    const de = new Date(base)
+    de.setMonth(de.getMonth() - 3)
+    return { de: fmt(de), ate: hoje }
+  }
+  return { de: hoje, ate: hoje }
+}
+
+/** Layout mobile-first do painel do barbeiro (acento azul). */
+function shellBarbeiro(page, title, body, barbeiro, script = '', extraHead = '') {
+  const nav = [
+    { id: 'inicio', label: 'Início', icon: ic.cal, href: '/barbeiro/inicio' },
+    { id: 'agenda', label: 'Minha Agenda', icon: ic.cal, href: '/barbeiro/agenda' },
+    { id: 'financeiro', label: 'Meu Financeiro', icon: ic.money, href: '/barbeiro/financeiro' },
+  ]
+  const isActive = (id) => page === id || (id === 'financeiro' && page.startsWith('financeiro'))
+  const navBottom = nav
+    .map(
+      (n) => `
+    <a href="${n.href}" class="bb-nav-item ${isActive(n.id) ? 'active' : ''}" aria-current="${isActive(n.id) ? 'page' : 'false'}">
+      ${n.icon}
+      <span>${n.label}</span>
+    </a>`,
+    )
+    .join('')
+  const navSide = nav
+    .map(
+      (n) => `
+    <a href="${n.href}" class="nav-item ${isActive(n.id) ? 'active' : ''}">${n.icon}<span>${n.label}</span></a>`,
+    )
+    .join('')
+
+  const phoneRaw = getConfig('barbearia_phone') || getConfig('andy_phone') || ''
+  const phoneDigits = phoneRaw.replace(/\D/g, '').replace(/@.*/, '')
+  const suporteHref = phoneDigits ? `https://wa.me/${phoneDigits}` : 'tel:+5500000000000'
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${escapeHtml(title)} — Andy Na Régua</title>
+<style>${CSS}${CSS_BARBER}</style>
+${extraHead}
+</head>
+<body>
+<div class="barber-app">
+  <header class="barber-header">
+    <div class="barber-header-greet">
+      Olá, ${escapeHtml(barbeiro.nome)}
+      <span>${escapeHtml(title)}</span>
+    </div>
+    <div class="barber-header-actions">
+      <form method="POST" action="/barbeiro/logout" style="margin:0">
+        <button type="submit" class="barber-logout" aria-label="Sair">Sair</button>
+      </form>
+    </div>
+  </header>
+  <div class="barber-body-wrap">
+    <aside class="barber-sidebar" aria-label="Menu">
+      <div class="sidebar-logo" style="padding:0 0 1rem;border:none">
+        <img src="/logo.png" alt="Andy Na Régua" style="height:32px">
+      </div>
+      <nav class="nav">${navSide}</nav>
+    </aside>
+    <main class="barber-main" id="barberMain">
+      ${body}
+    </main>
+  </div>
+  <nav class="barber-nav-bottom" aria-label="Navegação principal">${navBottom}</nav>
+  <footer class="barber-footer">
+    Andy Na Régua · v1.0 · <a href="${suporteHref}" target="_blank" rel="noopener">Suporte</a>
+  </footer>
+</div>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+<script>
+${script}
+</script>
+</body></html>`
+}
+
 // ── LOGIN ROUTER ───────────────────────────────────────────────────
 loginRouter.get('/login', (req, res) => {
   const erro = req.query.erro || ''
@@ -573,8 +1374,13 @@ body{display:flex;align-items:center;justify-content:center;min-height:100vh;bac
   <div class="login-logo"><img src="/logo.png" alt="Andy Na Régua"></div>
   <div class="login-title">Painel de Controle</div>
   <div class="login-sub">Andy Na Régua Barbearia</div>
-  ${erro ? `<div class="alert alert-error" style="margin-bottom:1rem">${ic.warn} Senha incorreta</div>` : ''}
+  ${erro ? `<div class="alert alert-error" style="margin-bottom:1rem">${ic.warn} Credenciais incorretas</div>` : ''}
   <form method="POST" action="/painel/login">
+    <div class="form-group">
+      <label class="form-label">Seu nome</label>
+      <input type="text" name="nome" autocomplete="name" placeholder="Barbeiro 1">
+      <div class="form-hint" style="font-size:.68rem;margin-top:.35rem">Admin e recepção: deixe em branco. Barbeiros: obrigatório.</div>
+    </div>
     <div class="form-group">
       <label class="form-label">Senha de acesso</label>
       <input type="password" name="senha" placeholder="••••••••" required autofocus>
@@ -588,11 +1394,26 @@ body{display:flex;align-items:center;justify-content:center;min-height:100vh;bac
 })
 
 loginRouter.post('/login', express.urlencoded({ extended: false }), (req, res) => {
-  const { senha } = req.body
+  const nomeRaw = String(req.body?.nome || '').trim()
+  const senha = req.body?.senha
+
   const role = getRole(senha)
-  if (!role) return res.redirect('/painel/login?erro=1')
-  if (role === 'admin')     return res.redirect(`/${SECRET}/agenda`)
+  // Admin e recepção: apenas senha fixa (nome ignorado), fluxo inalterado.
+  if (role === 'admin') return res.redirect(`/${SECRET}/agenda`)
   if (role === 'reception') return res.redirect(`/${RECEPTION_SECRET}/agenda`)
+
+  // Barbeiro: nome + senha (bcrypt na tabela barbeiros)
+  if (!nomeRaw || !senha) return res.redirect('/painel/login?erro=1')
+  const barbeiro = getBarbeiros().find(
+    (b) => b.nome && b.nome.toLowerCase() === nomeRaw.toLowerCase(),
+  )
+  if (!barbeiro || !barbeiro.senha_hash || !bcrypt.compareSync(senha, barbeiro.senha_hash)) {
+    return res.redirect('/painel/login?erro=1')
+  }
+
+  const { id: sessionId } = criarSessaoBarbeiro(barbeiro.id)
+  setBarberSessionCookie(res, sessionId)
+  return res.redirect('/barbeiro/inicio')
 })
 
 // ═══════════════════════════════════════════════════════════════
@@ -603,6 +1424,7 @@ function agendaHandler(secret) {
     const data        = req.query.data || hojeStr()
     const staffFilter = req.query.barbeiro || ''
     const msg         = req.query.msg || ''
+    const isRecepcao  = secret === RECEPTION_SECRET
     const ags         = getAgendamentosDia(data, staffFilter || null)
     const fat         = getFaturamentoDia(data)
 
@@ -648,11 +1470,32 @@ function agendaHandler(secret) {
             </button>
           </form>`:''}
         </div>
+        ${
+          isRecepcao && ag.status === 'confirmado'
+            ? `
+        <div class="agenda-presenca-row" style="grid-column:1/-1;display:flex;gap:.5rem">
+          <form method="POST" action="/${secret}/agenda/presenca/${ag.id}" style="flex:1">
+            <input type="hidden" name="data" value="${escapeHtml(data)}">
+            <button type="submit" class="btn btn-primary btn-sm" style="width:100%;background:var(--green);border-color:var(--green)">
+              ✓ Chegou
+            </button>
+          </form>
+          <form method="POST" action="/${secret}/agenda/no-show/${ag.id}" style="flex:1">
+            <input type="hidden" name="data" value="${escapeHtml(data)}">
+            <button type="submit" class="btn btn-sm" style="width:100%;background:var(--red-sem-dim);color:var(--red-sem);border:1px solid rgba(239,68,68,.3)">
+              ✗ Não veio
+            </button>
+          </form>
+        </div>`
+            : ''
+        }
       </div>`
     }).join('') : `<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Nenhum agendamento para este dia</div></div>`
 
     const body = `
     ${msg==='criado'?`<div class="alert alert-success">${ic.check} Agendamento criado com sucesso!</div>`:''}
+    ${msg==='presenca_ok'?`<div class="alert alert-success">${ic.check} Presença confirmada — agendamento concluído.</div>`:''}
+    ${msg==='noshow_ok'?`<div class="alert" style="background:var(--amber-dim);border:1px solid rgba(245,158,11,.3);color:var(--amber);padding:.7rem 1rem;border-radius:var(--radius-sm);font-size:.8rem;display:flex;align-items:center;gap:.5rem;margin-bottom:1rem">${ic.warn} No-show registrado.</div>`:''}
     <div class="stats">
       <div class="stat">
         <div class="stat-icon red">${ic.cal}</div>
@@ -737,6 +1580,122 @@ function cancelarHandler(secret) {
 
 router.post('/agenda/cancelar', cancelarHandler(SECRET))
 receptionRouter.post('/agenda/cancelar', cancelarHandler(RECEPTION_SECRET))
+
+receptionRouter.post('/agenda/presenca/:id', express.urlencoded({ extended: false }), (req, res) => {
+  const id = Number(req.params.id)
+  const data = req.body.data || hojeStr()
+  confirmarPresenca(id)
+  log(`Recepção: presença confirmada — agendamento #${id}`)
+  res.redirect(`/${RECEPTION_SECRET}/agenda?data=${encodeURIComponent(data)}&msg=presenca_ok`)
+})
+
+receptionRouter.post('/agenda/no-show/:id', express.urlencoded({ extended: false }), (req, res) => {
+  const id = Number(req.params.id)
+  const data = req.body.data || hojeStr()
+  marcarNaoCompareceu(id)
+  log(`Recepção: no-show — agendamento #${id}`)
+  res.redirect(`/${RECEPTION_SECRET}/agenda?data=${encodeURIComponent(data)}&msg=noshow_ok`)
+})
+
+receptionRouter.get('/despesas', (req, res) => {
+  const ate = req.query.ate || hojeStr()
+  const de = req.query.de || primeiroDiaSemanaAtualBR()
+  const cat = typeof req.query.cat === 'string' && req.query.cat.trim() !== '' ? req.query.cat.trim() : null
+  const lista = getDespesas({
+    dataInicio: de,
+    dataFim: ate,
+    ...(cat ? { categoria: cat } : {}),
+  })
+  let totalPeriodo = 0
+  for (const d of lista) totalPeriodo += Number(d.valor) || 0
+
+  const msg = req.query.msg || ''
+  const alert =
+    msg === 'ok'
+      ? `<div class="alert alert-success">${ic.check} Despesa registrada.</div>`
+      : msg === 'err'
+        ? `<div class="alert alert-error">${ic.warn} Confira valor e dados.</div>`
+        : ''
+
+  const optsCat =
+    `<option value="" ${!cat ? 'selected' : ''}>Todas categorias</option>` +
+    CATEGORIAS_DESPESA.map((c) => `<option value="${escapeHtml(c)}" ${cat === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')
+
+  const linhasTab = lista.length
+    ? lista
+        .map(
+          (d) => `
+  <tr>
+    <td>${escapeHtml(String(d.data))}</td>
+    <td>${escapeHtml(d.descricao)}</td>
+    <td>${escapeHtml(d.categoria)}</td>
+    <td>${fmtBRL(d.valor)}</td>
+    <td class="td-muted">${d.obs ? escapeHtml(d.obs) : '—'}</td>
+  </tr>`,
+        )
+        .join('')
+    : `<tr><td colspan="5"><div class="empty"><div class="empty-text">Sem despesas no período.</div></div></td></tr>`
+
+  const optsCatNova = CATEGORIAS_DESPESA.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')
+
+  const body = `
+  <a href="/${RECEPTION_SECRET}/agenda" class="btn btn-ghost btn-sm" style="margin-bottom:1rem;display:inline-flex">${ic.back} Voltar à agenda</a>
+  ${alert}
+  <p class="form-hint" style="margin-bottom:1rem">${ic.cal} Período padrão: semana corrente (segunda a domingo, até hoje). Ajuste as datas para ver outro intervalo.</p>
+  <div class="toolbar" style="flex-wrap:wrap;margin-bottom:1rem">
+    <div class="toolbar-group"><span class="toolbar-label">De</span><input type="date" name="de" form="filtDespRec" value="${escapeHtml(de)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">Até</span><input type="date" name="ate" form="filtDespRec" value="${escapeHtml(ate)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">Categoria</span><select name="cat" form="filtDespRec">${optsCat}</select></div>
+    <form id="filtDespRec" method="GET" action="/${RECEPTION_SECRET}/despesas"><button type="submit" class="btn btn-primary btn-sm">${ic.cal} Filtrar</button></form>
+  </div>
+
+  <div class="stats" style="margin-bottom:1rem">
+    <div class="stat"><div class="stat-icon amber">${ic.money}</div><div class="stat-val">${fmtBRL(totalPeriodo)}</div><div class="stat-lbl">Total do período</div></div>
+  </div>
+
+  <div class="section-header"><span class="section-title">${ic.plus} Nova despesa</span></div>
+  <div class="form-card" style="max-width:640px;margin-bottom:1.25rem">
+    <form method="POST" action="/${RECEPTION_SECRET}/despesas/criar" class="form-row" style="flex-wrap:wrap;gap:.75rem;align-items:flex-end">
+      <div class="form-group" style="margin:0;flex:2;min-width:160px"><label class="form-label">Descrição</label><input type="text" name="descricao" required placeholder="Ex.: Compra de material"></div>
+      <div class="form-group" style="margin:0;width:120px"><label class="form-label">Valor</label><input type="text" inputmode="decimal" name="valor" required placeholder="150,00"></div>
+      <div class="form-group" style="margin:0"><label class="form-label">Categoria</label><select name="categoria">${optsCatNova}</select></div>
+      <div class="form-group" style="margin:0"><label class="form-label">Data</label><input type="date" name="data" value="${escapeHtml(hojeStr())}" required></div>
+      <div class="form-group" style="margin:0;flex:1;min-width:140px"><label class="form-label">Obs.</label><input type="text" name="obs" placeholder="Opcional"></div>
+      <button type="submit" class="btn btn-primary">${ic.check} Salvar despesa</button>
+    </form>
+  </div>
+
+  <div class="section-header"><span class="section-title">${ic.cal} Despesas no período</span></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Obs</th></tr></thead>
+      <tbody>${linhasTab}</tbody>
+    </table>
+  </div>`
+
+  res.send(shell('despesas', 'Despesas', 'Registro de saídas (recepção)', body, '', RECEPTION_SECRET))
+})
+
+receptionRouter.post('/despesas/criar', express.urlencoded({ extended: false }), (req, res) => {
+  const { descricao, data, obs } = req.body
+  let valorRaw = req.body.valor != null ? String(req.body.valor) : ''
+  valorRaw = valorRaw.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
+  const valor = Number.parseFloat(valorRaw)
+  const categoria = req.body.categoria || 'outros'
+  if (!descricao?.trim() || !data || !/^\d{4}-\d{2}-\d{2}$/.test(data) || Number.isNaN(valor)) {
+    return res.redirect(`/${RECEPTION_SECRET}/despesas?msg=err`)
+  }
+  criarDespesa({
+    descricao: descricao.trim(),
+    valor,
+    categoria,
+    data,
+    registrado_por: 'recepcao',
+    obs: obs?.trim() ? obs.trim() : null,
+  })
+  log(`Recepção: despesa "${descricao}" ${valor}`)
+  res.redirect(`/${RECEPTION_SECRET}/despesas?msg=ok`)
+})
 
 // ── Bloquear horário ─────────────────────────────────────────────
 function bloquearGetHandler(secret) {
@@ -913,6 +1872,66 @@ receptionRouter.post('/agenda/agendar-manual', agendarManualPostHandler(RECEPTIO
 router.get('/faturamento', (req, res) => {
   const data    = req.query.data    || hojeStr()
   const periodo = req.query.periodo || 'semana'
+  const aba     = req.query.aba === 'barbeiros' ? 'barbeiros' : 'geral'
+
+  const tabGeral = `/${SECRET}/faturamento?data=${encodeURIComponent(data)}&periodo=${periodo}&aba=geral`
+  const tabBarb  = `/${SECRET}/faturamento?data=${encodeURIComponent(data)}&periodo=${periodo}&aba=barbeiros`
+  const abasTopo = `
+  <div style="display:flex;gap:.5rem;margin-bottom:1.25rem;flex-wrap:wrap;align-items:center">
+    <a href="${tabGeral}" class="btn ${aba === 'geral' ? 'btn-primary' : 'btn-ghost'} btn-sm">Geral</a>
+    <a href="${tabBarb}" class="btn ${aba === 'barbeiros' ? 'btn-primary' : 'btn-ghost'} btn-sm">Por barbeiro</a>
+  </div>`
+
+  if (aba === 'barbeiros') {
+    const porBarbaraRows = getFaturamentoPorBarbeiroAdministrativo(periodo)
+    const abasPeriodoBarb = ['semana', 'mes', 'ano'].map((p) => `
+      <a href="/${SECRET}/faturamento?periodo=${p}&data=${encodeURIComponent(data)}&aba=barbeiros" class="btn ${periodo === p ? 'btn-primary' : 'btn-ghost'} btn-sm">${
+  { semana:'7 dias', mes:'Este mês', ano:'Este ano' }[p]
+}</a>`).join('')
+    const linhasBarb = porBarbaraRows.length
+      ? porBarbaraRows.map((row) => `
+      <tr>
+        <td><strong>${escapeHtml(row.nome)}</strong></td>
+        <td>${row.atendimentos}</td>
+        <td style="font-weight:600;color:var(--green)">R$ ${row.total_bruto.toFixed(2)}</td>
+        <td class="td-muted">R$ ${row.ticket_medio.toFixed(2)}</td>
+        <td>${escapeHtml(row.top_servico || '—')}</td>
+      </tr>`).join('')
+      : `<tr><td colspan="5"><div class="empty"><div class="empty-text">Nenhum atendimento concluído no período</div></div></td></tr>`
+
+    const bodyBarb = `
+    ${abasTopo}
+    <div style="display:flex;gap:.5rem;margin-bottom:1.25rem;flex-wrap:wrap">${abasPeriodoBarb}</div>
+    <div class="toolbar" style="margin-bottom:1rem">
+      <div class="toolbar-group">
+        <span class="toolbar-label">Data base</span>
+        <input type="date" id="dataInput" value="${data}">
+      </div>
+      <button class="btn btn-ghost" onclick="window.location.href='/${SECRET}/faturamento?data='+document.getElementById('dataInput').value+'&periodo=${periodo}&aba=barbeiros'">Ver</button>
+    </div>
+    <p class="form-hint" style="margin-bottom:1rem">${ic.warn} Apenas serviços concluídos. Período: ${{ semana:'7 dias', mes:'Este mês', ano:'Este ano' }[periodo]} (mesmo critério do gráfico geral).</p>
+    <div class="section-header">
+      <span class="section-title">Total por barbeiro</span>
+      <span class="section-count">${porBarbaraRows.length} barbeiros</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Barbeiro</th><th>Atendimentos</th><th>Total Bruto</th><th>Ticket Médio</th><th>Top Serviço</th></tr></thead>
+        <tbody>${linhasBarb}</tbody>
+      </table>
+    </div>`
+
+    return res.send(
+      shell(
+        'faturamento',
+        'Faturamento',
+        `${{ semana:'7 dias rolling', mes:'Mês corrente', ano:'Ano corrente' }[periodo]} — Por barbeiro`,
+        bodyBarb,
+        '',
+      ),
+    )
+  }
+
   const fat     = getFaturamentoDia(data)
   const ags     = fat.agendamentos || []
 
@@ -941,7 +1960,7 @@ router.get('/faturamento', (req, res) => {
     </tr>`).join('') : `<tr><td colspan="6"><div class="empty"><div class="empty-icon">💰</div><div class="empty-text">Sem movimentação neste dia</div></div></td></tr>`
 
   const abasPeriodo = ['semana','mes','ano'].map(p => `
-    <a href="/${SECRET}/faturamento?periodo=${p}&data=${data}" class="btn ${periodo===p?'btn-primary':'btn-ghost'} btn-sm">${
+    <a href="/${SECRET}/faturamento?periodo=${p}&data=${encodeURIComponent(data)}&aba=geral" class="btn ${periodo===p?'btn-primary':'btn-ghost'} btn-sm">${
       {semana:'7 dias',mes:'Este mês',ano:'Este ano'}[p]
     }</a>`).join('')
 
@@ -949,6 +1968,7 @@ router.get('/faturamento', (req, res) => {
   const atenPeriodo  = dadosPeriodo.reduce((s, d) => s + (d.atendimentos || 0), 0)
 
   const body = `
+  ${abasTopo}
   <div style="display:flex;gap:.5rem;margin-bottom:1.25rem;flex-wrap:wrap">
     ${abasPeriodo}
   </div>
@@ -958,7 +1978,7 @@ router.get('/faturamento', (req, res) => {
       <span class="toolbar-label">Data base</span>
       <input type="date" id="dataInput" value="${data}">
     </div>
-    <button class="btn btn-ghost" onclick="window.location.href='/${SECRET}/faturamento?data='+document.getElementById('dataInput').value+'&periodo=${periodo}'">Ver</button>
+    <button class="btn btn-ghost" onclick="window.location.href='/${SECRET}/faturamento?data='+document.getElementById('dataInput').value+'&periodo=${periodo}&aba=geral'">Ver</button>
   </div>
 
   <div class="stats" style="margin-bottom:1.25rem">
@@ -1039,6 +2059,451 @@ router.get('/faturamento', (req, res) => {
   `
 
   res.send(shell('faturamento', 'Faturamento', `Relatório de ${formatData(data + 'T12:00:00-03:00')}`, body, script))
+})
+
+// ═══════════════════════════════════════════════════════════════
+// FINANCEIRO (admin)
+// ═══════════════════════════════════════════════════════════════
+
+router.get('/financeiro', (req, res) => {
+  const per = ['semana', 'mes', 'ano'].includes(req.query.per) ? req.query.per : 'mes'
+  const mesDe = primeiroDiaMesAtualBR()
+  const mesAte = hojeStr()
+  const receitaMes = sumReceitaConcluidosPeriodo(mesDe, mesAte)
+  const despesasMes = sumDespesasPeriodo(mesDe, mesAte)
+  const comissoesAbertasTot = sumComissoesFechamentosAbertos()
+  const saldoEstimado = receitaMes - despesasMes - comissoesAbertasTot
+  const ranking = getRankingProdutividadeAdministrativo(per)
+  const { barbeiros, totais, maxVal, cores } = getFaturamento4SemanasPorBarbeiro()
+  const svgChart = renderSvgBarrasFinanceiro(barbeiros, totais, maxVal, cores)
+  const perLabels = { semana: '7 dias', mes: 'Este mês', ano: 'Este ano' }
+  const pillsPer = ['semana', 'mes', 'ano']
+    .map(
+      (p) =>
+        `<a href="/${SECRET}/financeiro?per=${p}" class="btn ${per === p ? 'btn-primary' : 'btn-ghost'} btn-sm">${perLabels[p]}</a>`,
+    )
+    .join('')
+
+  const linhasRanking = ranking.length
+    ? ranking.map(
+        (r) => `
+    <tr>
+      <td class="td-muted"><strong>${r.posicao}º</strong></td>
+      <td>${escapeHtml(r.nome)}</td>
+      <td>${r.atendimentos}</td>
+      <td style="font-weight:600;color:var(--green)">${fmtBRL(r.total_bruto)}</td>
+      <td class="td-muted">${fmtBRL(r.ticket_medio)}</td>
+      <td>${escapeHtml(r.top_servico || '—')}</td>
+    </tr>`,
+      ).join('')
+    : `<tr><td colspan="6"><div class="empty"><div class="empty-text">Sem atendimentos concluídos no período</div></div></td></tr>`
+
+  const body = `
+  <div style="margin-bottom:.5rem;display:flex;flex-wrap:wrap;gap:.5rem">${pillsPer}</div>
+  <p class="form-hint" style="margin-bottom:1.1rem">${ic.chart} Ranking e totais lateral: período "${perLabels[per]}" (${per === 'semana' ? 'rolling local' : 'calendário corrente'}).</p>
+
+  <div class="stats" style="margin-bottom:1.25rem">
+    <div class="stat"><div class="stat-icon green">${ic.money}</div><div class="stat-val">${fmtBRL(receitaMes)}</div><div class="stat-lbl">Receita do mês</div><div class="stat-accent"></div></div>
+    <div class="stat"><div class="stat-icon amber">${ic.box}</div><div class="stat-val">${fmtBRL(despesasMes)}</div><div class="stat-lbl">Despesas do mês</div></div>
+    <div class="stat"><div class="stat-icon red">${ic.chart}</div><div class="stat-val">${fmtBRL(saldoEstimado)}</div><div class="stat-lbl">Saldo estimado</div></div>
+    <div class="stat"><div class="stat-icon blue">${ic.cal}</div><div class="stat-val">${fmtBRL(comissoesAbertasTot)}</div><div class="stat-lbl">Comissões abertas (total)</div></div>
+  </div>
+
+  <div class="section-header"><span class="section-title">${ic.chart} Ranking de produtividade</span><span class="section-count">${ranking.length} barbeiros</span></div>
+  <div class="table-wrap" style="margin-bottom:1.5rem">
+    <table>
+      <thead><tr><th>#</th><th>Barbeiro</th><th>Atendimentos</th><th>Total bruto</th><th>Ticket médio</th><th>Top serviço</th></tr></thead>
+      <tbody>${linhasRanking}</tbody>
+    </table>
+  </div>
+
+  <div class="section-header"><span class="section-title">${ic.chart} Faturamento por barbeiro (últimas 4 semanas)</span></div>
+  <div class="chart-card" style="margin-bottom:.5rem">${svgChart}</div>
+  <p class="form-hint">${ic.warn} Agrupamento de 7 em 7 dias até hoje; apenas serviços concluídos (bruto).</p>`
+
+  res.send(shell('financeiro', 'Financeiro', 'Visão consolidada e ranking Andy Na Régua', body))
+})
+
+router.get('/financeiro/comissoes', (req, res) => {
+  const de = req.query.de || primeiroDiaMesAtualBR()
+  const ate = req.query.ate || hojeStr()
+  const msg = req.query.msg || ''
+  const servicos = getServicosAtivos()
+  const barberos = getBarbeiros().filter((b) => b.ativo).sort((a, z) => a.nome.localeCompare(z.nome))
+  let cards = ''
+
+  for (const b of barberos) {
+    const linCalc = calcularComissaoPeriodo(b.id, de, ate)
+    const atk = linCalc.length
+    const totalBruto = linCalc.reduce((s, row) => s + Number(row.valor_bruto || 0), 0)
+    const totalComEst = linCalc.reduce((s, row) => s + Number(row.valor_comissao || 0), 0)
+    const pctPad = Number(b.comissao_padrao_pct) || 0
+    const semPctBadge =
+      pctPad === 0
+        ? `<span class="badge-fin-err">${ic.warn} Sem % configurado</span>`
+        : `<span class="form-hint" style="margin:0;display:inline">${pctPad}%</span>`
+
+    const overrides = getComissaoOverrides(b.id)
+    const rowsOv = overrides.length
+      ? overrides
+          .map(
+            (o) =>
+              `<tr>
+      <td>${escapeHtml(o.servico_id)}</td>
+      <td>${escapeHtml(String(o.pct ?? ''))}%</td>
+      <td style="white-space:nowrap">
+        <form method="POST" action="/${SECRET}/financeiro/comissoes/override-remover" style="display:inline">
+          <input type="hidden" name="barbeiro_id" value="${escapeHtml(b.id)}">
+          <input type="hidden" name="servico_id" value="${escapeHtml(o.servico_id)}">
+          <button type="submit" class="btn btn-ghost btn-sm">${ic.box} Remover</button>
+        </form>
+      </td>
+    </tr>`,
+          )
+          .join('')
+      : `<tr><td colspan="3" class="td-muted">Nenhum override</td></tr>`
+
+    const optsServico = servicos
+      .map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.nome)}</option>`)
+      .join('')
+
+    cards += `
+    <div style="border:1px solid var(--border);border-radius:12px;background:var(--elevated);padding:1rem">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.5rem;margin-bottom:.5rem;flex-wrap:wrap">
+        <div><strong>${escapeHtml(b.nome)}</strong><div style="margin-top:.35rem">${semPctBadge}</div></div>
+        <div style="display:flex;flex-wrap:wrap;gap:.35rem">
+          ${
+            pctPad === 0
+              ? `<a href="/${SECRET}/financeiro/comissoes?de=${encodeURIComponent(de)}&ate=${encodeURIComponent(ate)}#cfg-padrao-${escapeHtml(b.id)}" class="btn btn-primary btn-sm">${ic.gear} Configurar</a>`
+              : ''
+          }
+          <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('dlg-f-${escapeHtml(b.id)}').showModal()">${ic.check} Criar fechamento</button>
+        </div>
+      </div>
+      <div class="fin-mini">Período: ${escapeHtml(de)} → ${escapeHtml(ate)}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;margin:.75rem 0;font-size:.82rem">
+        <div><span class="fin-mini">Atendimentos</span><div><strong>${atk}</strong></div></div>
+        <div><span class="fin-mini">Total bruto</span><div><strong style="color:var(--green)">${fmtBRL(totalBruto)}</strong></div></div>
+        <div><span class="fin-mini">Comissão estimada</span><div><strong style="color:var(--blue-l)">${fmtBRL(totalComEst)}</strong></div></div>
+      </div>
+      <dialog id="dlg-f-${escapeHtml(b.id)}" class="finance-dlg">
+        <div class="fin-dlg-hd">${ic.check} Novo fechamento — ${escapeHtml(b.nome)}</div>
+        <form method="POST" action="/${SECRET}/financeiro/fechamentos/criar">
+          <input type="hidden" name="barbeiro_id" value="${escapeHtml(b.id)}">
+          <div class="fin-dlg-bd">
+            <div class="form-group" style="margin:0"><label class="form-label">Início do período</label><input type="date" name="periodo_inicio" value="${escapeHtml(de)}" required></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Fim do período</label><input type="date" name="periodo_fim" value="${escapeHtml(ate)}" required></div>
+            <p class="form-hint" style="margin:0">${ic.warn} O sistema soma apenas atendimentos concluídos no intervalo e vincula ao fechamento.</p>
+          </div>
+          <div class="fin-dlg-ft">
+            <button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancelar</button>
+            <button type="submit" class="btn btn-primary">${ic.check} Gerar</button>
+          </div>
+        </form>
+      </dialog>
+      <details style="margin-top:.5rem;font-size:.8rem"><summary>${ic.chart} Overrides por serviço</summary>
+      <div class="table-wrap" style="margin-top:.5rem"><table><thead><tr><th>Serviço ID</th><th>%</th><th></th></tr></thead><tbody>${rowsOv}</tbody></table></div>
+      <form method="POST" action="/${SECRET}/financeiro/comissoes/override" style="margin-top:.5rem;display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end">
+        <input type="hidden" name="barbeiro_id" value="${escapeHtml(b.id)}">
+        <div class="form-group" style="margin:0"><label class="form-label">Serviço</label><select name="servico_id" required><option value="" disabled selected>Escolha…</option>${optsServico}</select></div>
+        <div class="form-group" style="margin:0;width:92px"><label class="form-label">% comissão</label><input type="number" name="pct_override" step="0.01" min="0" max="100" required placeholder="35"></div>
+        <button type="submit" class="btn btn-ghost btn-sm">${ic.plus} Salvar override</button>
+      </form>
+      </details>
+    </div>`
+  }
+
+  const inputsPadrao = barberos
+    .map((b) => {
+      const v = Number(b.comissao_padrao_pct) || 0
+      return `
+    <div class="form-group" id="cfg-padrao-${escapeHtml(b.id)}" style="margin:.5rem 0;">
+      <label class="form-label">${escapeHtml(b.nome)} — % padrão</label>
+      <input type="number" step="0.01" min="0" max="100" name="pct_${b.id}" value="${v}">
+    </div>`
+    })
+    .join('')
+
+  const alert =
+    msg === 'cfg'
+      ? `<div class="alert alert-success">${ic.check} Percentuais salvos.</div>`
+      : msg === 'ov'
+        ? `<div class="alert alert-success">${ic.check} Override atualizado.</div>`
+        : msg === 'rm'
+          ? `<div class="alert alert-success">${ic.check} Override removido.</div>`
+          : ''
+
+  const body = `
+  ${alert}
+  <div class="toolbar" style="margin-bottom:1rem">
+    <div class="toolbar-group"><span class="toolbar-label">De</span><input type="date" id="cfDe" value="${escapeHtml(de)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">Até</span><input type="date" id="cfAte" value="${escapeHtml(ate)}"></div>
+    <button type="button" class="btn btn-ghost" onclick="window.location.href='/${SECRET}/financeiro/comissoes?de='+document.getElementById('cfDe').value+'&ate='+document.getElementById('cfAte').value">${ic.cal} Ver período</button>
+  </div>
+
+  <div class="section-header"><span class="section-title">${ic.chart} Comissões do período (por barbeiro)</span></div>
+  <div class="fin-cards">${cards || `<div class="empty"><div class="empty-text">Nenhum barbeiro ativo</div></div>`}</div>
+
+  <div class="section-header" style="margin-top:1.5rem" id="config-pcts"><span class="section-title">${ic.gear} Configurar percentuais</span></div>
+  <div class="form-card" style="max-width:560px;margin-bottom:.5rem"><div class="form-card-title">${ic.gear} % padrão por barbeiro</div><form method="POST" action="/${SECRET}/financeiro/comissoes/config">${inputsPadrao}<div style="margin-top:1rem"><button type="submit" class="btn btn-primary">${ic.check} Salvar percentuais</button></div></form></div>
+  `
+
+  res.send(shell('financeiro/comissoes', 'Comissões', 'Configuração e estimativas Andy Na Régua', body))
+})
+
+router.post('/financeiro/comissoes/config', express.urlencoded({ extended: false }), (req, res) => {
+  for (const b of getBarbeiros()) {
+    const key = `pct_${b.id}`
+    const raw = req.body[key]
+    if (raw === undefined) continue
+    const v = Number.parseFloat(raw)
+    if (Number.isNaN(v)) continue
+    updateBarbeiro(b.id, { comissao_padrao_pct: v })
+  }
+  log('Painel: comissões — percentuais padrão atualizados')
+  res.redirect(`/${SECRET}/financeiro/comissoes?msg=cfg`)
+})
+
+router.post('/financeiro/comissoes/override', express.urlencoded({ extended: false }), (req, res) => {
+  const { barbeiro_id, servico_id } = req.body
+  let pct = Number.parseFloat(req.body.pct_override)
+  if (!barbeiro_id || !servico_id || Number.isNaN(pct)) return res.redirect(`/${SECRET}/financeiro/comissoes?msg=err`)
+  pct = Math.max(0, Math.min(100, pct))
+  setComissaoOverride(barbeiro_id, servico_id, pct)
+  log(`Painel: override comissão — ${barbeiro_id}/${servico_id} → ${pct}%`)
+  res.redirect(`/${SECRET}/financeiro/comissoes?msg=ov`)
+})
+
+router.post('/financeiro/comissoes/override-remover', express.urlencoded({ extended: false }), (req, res) => {
+  const { barbeiro_id, servico_id } = req.body
+  if (!barbeiro_id || !servico_id) return res.redirect(`/${SECRET}/financeiro/comissoes`)
+  getDb().prepare(`DELETE FROM comissao_overrides WHERE barbeiro_id = ? AND servico_id = ?`).run(barbeiro_id, servico_id)
+  res.redirect(`/${SECRET}/financeiro/comissoes?msg=rm`)
+})
+
+router.get('/financeiro/fechamentos', (req, res) => {
+  const st = req.query.st === 'aberto' || req.query.st === 'pago' ? req.query.st : 'todos'
+  const bid = req.query.barbeiro && String(req.query.barbeiro).trim() !== '' ? String(req.query.barbeiro).trim() : null
+  const lista = listarFechamentosAdministrativo(st === 'todos' ? null : st, bid)
+  const msg = req.query.msg || ''
+
+  const barberos = getBarbeiros().filter((b) => b.ativo)
+  const optBarb =
+    `<option value="" ${!bid ? 'selected' : ''}>Todos os barbeiros</option>` +
+    barberos.map((b) => `<option value="${escapeHtml(b.id)}" ${bid === b.id ? 'selected' : ''}>${escapeHtml(b.nome)}</option>`).join('')
+
+  const filtLinks = `
+  <div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.75rem">
+    <a href="/${SECRET}/financeiro/fechamentos?st=todos${bid ? `&barbeiro=${encodeURIComponent(bid)}` : ''}" class="btn ${st === 'todos' ? 'btn-primary' : 'btn-ghost'} btn-sm">Todos</a>
+    <a href="/${SECRET}/financeiro/fechamentos?st=aberto${bid ? `&barbeiro=${encodeURIComponent(bid)}` : ''}" class="btn ${st === 'aberto' ? 'btn-primary' : 'btn-ghost'} btn-sm">Abertos</a>
+    <a href="/${SECRET}/financeiro/fechamentos?st=pago${bid ? `&barbeiro=${encodeURIComponent(bid)}` : ''}" class="btn ${st === 'pago' ? 'btn-primary' : 'btn-ghost'} btn-sm">Pagos</a>
+  </div>`
+
+  const alert =
+    msg === 'criado'
+      ? `<div class="alert alert-success">${ic.check} Fechamento criado.</div>`
+      : msg === 'pago'
+        ? `<div class="alert alert-success">${ic.check} Pagamento registrado e barbeiro notificado (WhatsApp se houver).</div>`
+        : msg === 'erro_data'
+          ? `<div class="alert alert-error">${ic.warn} Datas inválidas.</div>`
+          : msg === 'vazio'
+            ? `<div class="alert alert-error">${ic.warn} Nenhum atendimento no período.</div>`
+            : ''
+
+  const cards = lista.length
+    ? lista
+        .map((f) => {
+          const stLabel = f.status === 'pago' ? `Pago` : `Aberto`
+          const stCol = f.status === 'pago' ? `#4ade80` : `#fbbf24`
+          const quandoPago =
+            f.status === 'pago'
+              ? `<div class="fin-mini">Registrado em <strong>${formatDataHoraPainel(f.pago_em)}</strong> por ${escapeHtml(f.pago_por || '—')}</div>`
+              : ''
+
+          const acaoPg =
+            f.status === 'aberto'
+              ? `<button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('dlg-pg-${f.id}').showModal()">${ic.money} Registrar pagamento</button>`
+              : `<span class="form-hint">—</span>`
+
+          return `
+<div style="border:1px solid var(--border);border-radius:12px;background:var(--elevated);padding:1rem;margin-bottom:.85rem;border-left:3px solid ${stCol}">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:.5rem;align-items:center">
+    <div><strong>${escapeHtml(f.barbeiro_nome || f.barbeiro_id)}</strong> · <span style="color:${stCol};font-weight:700;font-size:.78rem">${stLabel}</span></div>${acaoPg}</div>
+  <div class="fin-mini">${escapeHtml(f.periodo_inicio)} → ${escapeHtml(f.periodo_fim)}</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:.65rem;margin-top:.65rem;font-size:.82rem">
+    <div><span class="fin-mini">Atendimentos</span><div>${f.n_atendimentos ?? 0}</div></div>
+    <div><span class="fin-mini">Bruto</span><div>${fmtBRL(f.total_bruto)}</div></div>
+    <div><span class="fin-mini">Comissão (${Number(f.pct_aplicado || 0).toFixed(1)}%)</span><div>${fmtBRL(f.total_comissao)}</div></div>
+  </div>
+  ${f.obs ? `<div class="form-hint" style="margin-top:.5rem">Obs: ${escapeHtml(f.obs)}</div>` : ''}
+  ${quandoPago}
+  ${
+    f.status === 'aberto'
+      ? `<dialog id="dlg-pg-${f.id}" class="finance-dlg">
+    <form method="POST" action="/${SECRET}/financeiro/fechamentos/${f.id}/pagar"><div class="fin-dlg-hd">${ic.money} Confirmar pagamento</div><div class="fin-dlg-bd"><p style="margin:0;font-size:.82rem">Confirme o pagamento ao barbeiro. Opcionalmente deixe uma observação.</p><div class="form-group" style="margin-bottom:0"><label class="form-label">Observação interna</label><textarea name="obs" rows="3" placeholder="Ex.: PIX chave xxx, conferido pela recepção."></textarea></div></div><div class="fin-dlg-ft"><button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancelar</button><button type="submit" class="btn btn-primary">${ic.check} Registrar pagamento</button></div></form>
+    </dialog>`
+      : ''
+  }
+</div>`
+        })
+        .join('')
+    : `<div class="empty"><div class="empty-text">Nenhum fechamento encontrado.</div></div>`
+
+  const body = `
+  ${alert}
+  ${filtLinks}
+  <form method="GET" action="/${SECRET}/financeiro/fechamentos" class="toolbar" style="margin-bottom:1rem;flex-wrap:wrap">
+    <input type="hidden" name="st" value="${escapeHtml(st)}">
+    <div class="toolbar-group"><span class="toolbar-label">Barbeiro</span><select name="barbeiro" onchange="this.form.submit()">${optBarb}</select></div>
+  </form>
+  <div class="section-header"><span class="section-title">${ic.cal} Histórico de fechamentos</span><span class="section-count">${lista.length} registros</span></div>
+  ${cards}`
+
+  res.send(shell('financeiro/fechamentos', 'Fechamentos', 'Comissões e pagamentos aos barbeiros', body))
+})
+
+router.post('/financeiro/fechamentos/criar', express.urlencoded({ extended: false }), (req, res) => {
+  const barbeiroId = req.body.barbeiro_id
+  const pi = req.body.periodo_inicio
+  const pf = req.body.periodo_fim
+  if (!barbeiroId || !pi || !pf || !/^\d{4}-\d{2}-\d{2}$/.test(pi) || !/^\d{4}-\d{2}-\d{2}$/.test(pf)) {
+    return res.redirect(`/${SECRET}/financeiro/fechamentos?msg=erro_data`)
+  }
+  const r = criarFechamentoComCalculo(barbeiroId, pi, pf)
+  if (r.erro) {
+    log(`Painel: fechamento falhou (${barbeiroId} ${pi}–${pf}): ${r.erro}`)
+    return res.redirect(`/${SECRET}/financeiro/fechamentos?msg=vazio`)
+  }
+  log(`Painel: fechamento #${r.fechamento.id} criado — ${barbeiroId} (${r.count} atend.)`)
+  res.redirect(`/${SECRET}/financeiro/fechamentos?msg=criado`)
+})
+
+router.post('/financeiro/fechamentos/:id/pagar', express.urlencoded({ extended: false }), (req, res) => {
+  const id = Number(req.params.id)
+  const obs = req.body.obs || ''
+  const f = getDb().prepare(`SELECT * FROM fechamentos WHERE id = ?`).get(id)
+  if (!f || f.status !== 'aberto') return res.redirect(`/${SECRET}/financeiro/fechamentos`)
+  const det = getFechamentoDetalhe(id)
+  registrarPagamentoFechamento(id, 'Administrador (painel)')
+  atualizarObsFechamento(id, obs)
+  const barbeiro = getBarbeiroById(f.barbeiro_id)
+  const count = det?.agendamentos?.length ?? 0
+  const pctFmt = Number(f.pct_aplicado || 0).toFixed(1).replace('.', ',')
+  enqueueWhatsAppPagamento(barbeiro, f, count, pctFmt)
+  log(`Painel: fechamento #${id} pago (${count} atend.; WhatsApp disparado)`)
+  res.redirect(`/${SECRET}/financeiro/fechamentos?msg=pago`)
+})
+
+router.get('/financeiro/despesas', (req, res) => {
+  const de = req.query.de || primeiroDiaMesAtualBR()
+  const ate = req.query.ate || hojeStr()
+  const cat = typeof req.query.cat === 'string' && req.query.cat.trim() !== '' ? req.query.cat.trim() : null
+  const lista = getDespesas({
+    dataInicio: de,
+    dataFim: ate,
+    ...(cat ? { categoria: cat } : {}),
+  })
+  let totalPeriodo = 0
+  for (const d of lista) totalPeriodo += Number(d.valor) || 0
+
+  const msg = req.query.msg || ''
+  const alert =
+    msg === 'ok'
+      ? `<div class="alert alert-success">${ic.check} Despesa registrada.</div>`
+      : msg === 'del'
+        ? `<div class="alert alert-success">${ic.check} Despesa removida.</div>`
+        : msg === 'err'
+          ? `<div class="alert alert-error">${ic.warn} Confira valor e dados.</div>`
+          : ''
+
+  const optsCat =
+    `<option value="" ${!cat ? 'selected' : ''}>Todas categorias</option>` +
+    CATEGORIAS_DESPESA.map((c) => `<option value="${escapeHtml(c)}" ${cat === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')
+
+  const linhasTab = lista.length
+    ? lista
+        .map(
+          (d) => `
+  <tr>
+    <td>${escapeHtml(String(d.data))}</td>
+    <td>${escapeHtml(d.descricao)}</td>
+    <td>${escapeHtml(d.categoria)}</td>
+    <td>${fmtBRL(d.valor)}</td>
+    <td class="td-muted">${d.obs ? escapeHtml(d.obs) : '—'}</td>
+    <td style="white-space:nowrap">
+      <form method="POST" action="/${SECRET}/financeiro/despesas/${d.id}/deletar" style="display:inline" onsubmit="return confirm('Excluir esta despesa permanentemente?')">
+        <button type="submit" class="btn btn-ghost btn-sm">${ic.box} Excluir</button>
+      </form>
+    </td>
+  </tr>`,
+        )
+        .join('')
+    : `<tr><td colspan="6"><div class="empty"><div class="empty-text">Sem despesas no período.</div></div></td></tr>`
+
+  const optsCatNova = CATEGORIAS_DESPESA.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')
+
+  const body = `
+  ${alert}
+  <div class="toolbar" style="flex-wrap:wrap;margin-bottom:1rem">
+    <div class="toolbar-group"><span class="toolbar-label">De</span><input type="date" name="de" form="filtDesp" value="${escapeHtml(de)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">Até</span><input type="date" name="ate" form="filtDesp" value="${escapeHtml(ate)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">Categoria</span><select name="cat" form="filtDesp">${optsCat}</select></div>
+    <form id="filtDesp" method="GET" action="/${SECRET}/financeiro/despesas"><button type="submit" class="btn btn-primary btn-sm">${ic.cal} Filtrar</button></form>
+  </div>
+
+  <div class="stats" style="margin-bottom:1rem">
+    <div class="stat"><div class="stat-icon amber">${ic.money}</div><div class="stat-val">${fmtBRL(totalPeriodo)}</div><div class="stat-lbl">Total filtrado</div></div>
+  </div>
+
+  <div class="section-header"><span class="section-title">${ic.plus} Nova despesa</span></div>
+  <div class="form-card" style="max-width:640px;margin-bottom:1.25rem">
+    <form method="POST" action="/${SECRET}/financeiro/despesas/criar" class="form-row" style="flex-wrap:wrap;gap:.75rem;align-items:flex-end">
+      <div class="form-group" style="margin:0;flex:2;min-width:160px"><label class="form-label">Descrição</label><input type="text" name="descricao" required placeholder="Ex.: Aluguel loja Maio"></div>
+      <div class="form-group" style="margin:0;width:120px"><label class="form-label">Valor</label><input type="text" inputmode="decimal" name="valor" required placeholder="1500,00"></div>
+      <div class="form-group" style="margin:0"><label class="form-label">Categoria</label><select name="categoria">${optsCatNova}</select></div>
+      <div class="form-group" style="margin:0"><label class="form-label">Data</label><input type="date" name="data" value="${escapeHtml(hojeStr())}" required></div>
+      <div class="form-group" style="margin:0;flex:1;min-width:140px"><label class="form-label">Obs.</label><input type="text" name="obs" placeholder="Opcional"></div>
+      <button type="submit" class="btn btn-primary">${ic.check} Salvar despesa</button>
+    </form>
+  </div>
+
+  <div class="section-header"><span class="section-title">${ic.cal} Lista de despesas</span></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Obs</th><th></th></tr></thead>
+      <tbody>${linhasTab}</tbody>
+    </table>
+  </div>`
+
+  res.send(shell('financeiro/despesas', 'Despesas', 'Controle de saídas do negócio', body))
+})
+
+router.post('/financeiro/despesas/criar', express.urlencoded({ extended: false }), (req, res) => {
+  const { descricao, data, obs } = req.body
+  let valorRaw = req.body.valor != null ? String(req.body.valor) : ''
+  valorRaw = valorRaw.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
+  const valor = Number.parseFloat(valorRaw)
+  const categoria = req.body.categoria || 'outros'
+  if (!descricao?.trim() || !data || !/^\d{4}-\d{2}-\d{2}$/.test(data) || Number.isNaN(valor)) {
+    return res.redirect(`/${SECRET}/financeiro/despesas?msg=err`)
+  }
+  criarDespesa({
+    descricao: descricao.trim(),
+    valor,
+    categoria,
+    data,
+    registrado_por: 'admin',
+    obs: obs?.trim() ? obs.trim() : null,
+  })
+  log(`Painel: despesa criada "${descricao}" ${valor}`)
+  res.redirect(`/${SECRET}/financeiro/despesas?msg=ok`)
+})
+
+router.post('/financeiro/despesas/:id/deletar', express.urlencoded({ extended: false }), (req, res) => {
+  const id = Number(req.params.id)
+  deletarDespesa(id)
+  log(`Painel: despesa #${id} removida`)
+  res.redirect(`/${SECRET}/financeiro/despesas?msg=del`)
 })
 
 // ═══════════════════════════════════════════════════════════════
@@ -1748,4 +3213,276 @@ router.get('/eventos-bot', (req, res) => {
 router.get('/', (req, res) => res.redirect(`/${SECRET}/agenda`))
 receptionRouter.get('/', (req, res) => res.redirect(`/${RECEPTION_SECRET}/agenda`))
 
-export { router as panelRouter, loginRouter, receptionRouter, SECRET, RECEPTION_SECRET }
+// ═══════════════════════════════════════════════════════════════
+//  PAINEL DO BARBEIRO (/barbeiro/*)
+// ═══════════════════════════════════════════════════════════════
+
+barbeiroRouter.post('/logout', express.urlencoded({ extended: false }), (req, res) => {
+  if (req.barbeiro?.sessionId) deletarSessaoBarbeiro(req.barbeiro.sessionId)
+  clearBarberSessionCookie(res)
+  res.redirect('/painel/login')
+})
+
+barbeiroRouter.get('/financeiro/dados', (req, res) => {
+  const de = req.query.de
+  const ate = req.query.ate
+  if (!de || !ate || !/^\d{4}-\d{2}-\d{2}$/.test(de) || !/^\d{4}-\d{2}-\d{2}$/.test(ate)) {
+    return res.status(400).json({ erro: 'Parâmetros de e ate obrigatórios (YYYY-MM-DD)' })
+  }
+  res.json(buildFinanceiroDados(req.barbeiro.id, de, ate))
+})
+
+barbeiroRouter.get('/inicio', (req, res) => {
+  const b = req.barbeiro
+  const hoje = hojeStr()
+  const ags = getAgendamentosDia(hoje, b.id)
+  const deFin = getInicioPeriodoFinanceiro(b.id)
+  const fin = buildFinanceiroDados(b.id, deFin, hoje)
+  const dataLabel = new Date(`${hoje}T12:00:00`).toLocaleDateString('pt-BR', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    timeZone: 'America/Sao_Paulo',
+  })
+  const body = `
+    <h1 class="barber-page-title">Início</h1>
+    <section class="bb-section">
+      <h2 class="bb-section-title">Agenda de hoje</h2>
+      <p class="bb-muted" style="margin:-.5rem 0 .75rem;font-size:.72rem;text-transform:capitalize">${escapeHtml(dataLabel)}</p>
+      ${renderBarbeiroAgendaLista(ags, 'Sem agendamentos hoje')}
+    </section>
+    ${renderResumoFinanceiroHtml(fin)}
+  `
+  res.send(shellBarbeiro('inicio', 'Início', body, b))
+})
+
+barbeiroRouter.get('/agenda', (req, res) => {
+  const b = req.barbeiro
+  const data = req.query.data || hojeStr()
+  const status = req.query.status || 'todos'
+  const ags = getAgendamentosBarbeiroDia(data, b.id, status)
+  const pillLabels = { todos: 'Todos', confirmado: 'Confirmado', concluido: 'Concluído', 'no-show': 'No-show' }
+  const pills = Object.keys(pillLabels)
+    .map((s) => {
+      const active = status === s
+      return `<a href="/barbeiro/agenda?data=${encodeURIComponent(data)}&status=${s}" class="bb-pill ${active ? 'active' : ''}" aria-pressed="${active}">${pillLabels[s]}</a>`
+    })
+    .join('')
+  const body = `
+    <h1 class="barber-page-title">Minha agenda</h1>
+    <div class="bb-toolbar">
+      <label class="form-label" for="agendaDate">Data</label>
+      <input type="date" id="agendaDate" value="${escapeHtml(data)}" aria-label="Selecionar data">
+      <div class="bb-pills" role="group" aria-label="Filtrar por status">${pills}</div>
+    </div>
+    ${renderBarbeiroAgendaLista(ags, 'Nenhum agendamento neste dia')}
+  `
+  const script = `
+    document.getElementById('agendaDate').addEventListener('change', function(){
+      window.location.href='/barbeiro/agenda?data='+encodeURIComponent(this.value)+'&status=${escapeHtml(status)}'
+    })
+  `
+  res.send(shellBarbeiro('agenda', 'Minha Agenda', body, b, script))
+})
+
+barbeiroRouter.get('/financeiro', (req, res) => {
+  const b = req.barbeiro
+  const deDefault = req.query.de || getInicioPeriodoFinanceiro(b.id)
+  const ateDefault = req.query.ate || hojeStr()
+  const periodo = req.query.periodo || ''
+
+  const body = `
+    <div x-data="financeiroBarbeiro()" x-init="init()" class="bb-financeiro">
+      <h1 class="barber-page-title">Meu financeiro</h1>
+
+      <div class="bb-period-btns" role="group" aria-label="Período rápido">
+        <button type="button" class="bb-pill" :class="periodoAtivo==='semana'?'active':''" @click="setPeriodo('semana')">Esta semana</button>
+        <button type="button" class="bb-pill" :class="periodoAtivo==='mes'?'active':''" @click="setPeriodo('mes')">Este mês</button>
+        <button type="button" class="bb-pill" :class="periodoAtivo==='mes_anterior'?'active':''" @click="setPeriodo('mes_anterior')">Mês anterior</button>
+        <button type="button" class="bb-pill" :class="periodoAtivo==='3meses'?'active':''" @click="setPeriodo('3meses')">Últimos 3 meses</button>
+      </div>
+
+      <div class="bb-date-range bb-toolbar">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" for="finDe">De</label>
+          <input type="date" id="finDe" x-model="de" @change="periodoAtivo='manual'; carregar()">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label" for="finAte">Até</label>
+          <input type="date" id="finAte" x-model="ate" @change="periodoAtivo='manual'; carregar()">
+        </div>
+      </div>
+
+      <template x-if="carregando">
+        <p class="bb-empty">Carregando…</p>
+      </template>
+
+      <template x-if="!carregando && dados">
+        <div>
+          <template x-if="dados.resumo.comissao_nao_configurada">
+            <div class="bb-alert">${ic.warn} Percentual não configurado — fale com Andy</div>
+          </template>
+
+          <div class="bb-stat-grid" style="margin-top:.75rem">
+            <div class="bb-stat" x-show="modoCompleto">
+              <div class="bb-stat-lbl">Total bruto</div>
+              <div class="bb-stat-val" x-text="fmt(dados.resumo.total_bruto)"></div>
+            </div>
+            <div class="bb-stat">
+              <div class="bb-stat-lbl">Comissão est.</div>
+              <div class="bb-stat-val" x-text="fmt(dados.resumo.total_comissao)"></div>
+            </div>
+            <div class="bb-stat">
+              <div class="bb-stat-lbl">Atendimentos</div>
+              <div class="bb-stat-val sm" x-text="dados.resumo.atendimentos"></div>
+            </div>
+            <div class="bb-stat" x-show="modoCompleto">
+              <div class="bb-stat-lbl">Ticket médio</div>
+              <div class="bb-stat-val sm" x-text="fmt(dados.resumo.ticket_medio)"></div>
+            </div>
+          </div>
+
+          <div class="bb-toggle-row">
+            <span class="bb-muted">Exibir valores</span>
+            <button type="button" class="bb-toggle" :class="modoCompleto?'on':''" @click="modoCompleto=!modoCompleto"
+              x-text="modoCompleto ? 'Bruto + comissão' : 'Só comissão'"></button>
+          </div>
+
+          <div class="bb-ranking" x-show="dados.ranking_total > 0">
+            Você é o <strong x-text="dados.ranking_posicao + 'º'"></strong> de
+            <strong x-text="dados.ranking_total"></strong> barbeiros neste período
+          </div>
+
+          <section class="bb-section" x-show="dados.top_servicos.length">
+            <h2 class="bb-section-title">Top 3 serviços</h2>
+            <template x-for="s in dados.top_servicos" :key="s.nome">
+              <div class="bb-servico-row">
+                <span x-text="s.nome"></span>
+                <span><span x-text="s.quantidade"></span>× · <strong x-text="fmt(s.total_bruto)"></strong></span>
+              </div>
+            </template>
+          </section>
+
+          <section class="bb-section">
+            <h2 class="bb-section-title">Atendimentos do período</h2>
+            <template x-if="!atendimentosVisiveis.length">
+              <div class="bb-empty">Nenhum atendimento concluído no período</div>
+            </template>
+            <template x-for="a in atendimentosVisiveis" :key="a.agendamento_id">
+              <article class="bb-atend-item">
+                <div class="bb-atend-top">
+                  <div>
+                    <div class="bb-card-title" x-text="a.cliente"></div>
+                    <div class="bb-atend-date" x-text="a.data + ' · ' + a.horario"></div>
+                  </div>
+                  <div style="text-align:right">
+                    <div class="bb-money" x-show="modoCompleto" x-text="fmt(a.valor_bruto)"></div>
+                    <div class="bb-money" x-show="!modoCompleto" x-text="fmt(a.valor_comissao)"></div>
+                    <div class="bb-muted" style="font-size:.72rem;margin-top:.2rem" x-show="modoCompleto" x-text="'Comissão: ' + fmt(a.valor_comissao)"></div>
+                  </div>
+                </div>
+                <div class="bb-card-meta" x-text="a.servico_nome"></div>
+              </article>
+            </template>
+            <button type="button" class="bb-load-more" x-show="limiteAtend < dados.atendimentos.length"
+              @click="limiteAtend += 20">Carregar mais</button>
+          </section>
+
+          <section class="bb-section" x-show="dados.fechamentos.length">
+            <h2 class="bb-section-title">Histórico de fechamentos</h2>
+            <template x-for="f in dados.fechamentos" :key="f.id">
+              <article class="bb-fech-card">
+                <div class="bb-card-row">
+                  <strong x-text="f.periodo_inicio + ' → ' + f.periodo_fim"></strong>
+                  <span x-html="fechBadge(f.status)"></span>
+                </div>
+                <div class="bb-fech-row"><span>Bruto</span><span x-text="fmt(f.total_bruto)"></span></div>
+                <div class="bb-fech-row"><span>Comissão</span><span x-text="fmt(f.total_comissao)"></span></div>
+                <div class="bb-fech-row" x-show="f.pago_em"><span>Pago em</span><span x-text="f.pago_em"></span></div>
+              </article>
+            </template>
+          </section>
+        </div>
+      </template>
+    </div>
+  `
+
+  const periodosServidor = {
+    semana: calcularPeriodoRapido('semana'),
+    mes: calcularPeriodoRapido('mes'),
+    mes_anterior: calcularPeriodoRapido('mes_anterior'),
+    '3meses': calcularPeriodoRapido('3meses'),
+  }
+
+  const script = `
+    const PERIODOS = ${JSON.stringify(periodosServidor)};
+
+    function financeiroBarbeiro() {
+      return {
+        de: ${JSON.stringify(deDefault)},
+        ate: ${JSON.stringify(ateDefault)},
+        periodoAtivo: ${JSON.stringify(periodo || 'custom')},
+        dados: null,
+        carregando: true,
+        modoCompleto: true,
+        limiteAtend: 20,
+        fmt(v) {
+          const n = Number(v) || 0;
+          return 'R$ ' + n.toFixed(2).replace('.', ',');
+        },
+        fechBadge(status) {
+          if (status === 'pago') {
+            return '<span style="background:rgba(34,197,94,.12);color:#4ade80;padding:.2rem .65rem;border-radius:20px;font-size:.68rem;font-weight:600">Pago</span>';
+          }
+          return '<span style="background:rgba(245,158,11,.12);color:#f59e0b;padding:.2rem .65rem;border-radius:20px;font-size:.68rem;font-weight:600">Aberto</span>';
+        },
+        get atendimentosVisiveis() {
+          if (!this.dados) return [];
+          return this.dados.atendimentos.slice(0, this.limiteAtend);
+        },
+        init() {
+          const pInicial = ${JSON.stringify(periodo || '')};
+          if (pInicial && PERIODOS[pInicial]) {
+            this.de = PERIODOS[pInicial].de;
+            this.ate = PERIODOS[pInicial].ate;
+            this.periodoAtivo = pInicial;
+          }
+          this.carregar();
+        },
+        setPeriodo(tipo) {
+          const p = PERIODOS[tipo];
+          if (!p) return;
+          this.de = p.de;
+          this.ate = p.ate;
+          this.periodoAtivo = tipo;
+          this.carregar();
+        },
+        async carregar() {
+          this.carregando = true;
+          this.limiteAtend = 20;
+          try {
+            const q = new URLSearchParams({ de: this.de, ate: this.ate });
+            const r = await fetch('/barbeiro/financeiro/dados?' + q.toString());
+            if (!r.ok) throw new Error('Erro ao carregar');
+            this.dados = await r.json();
+          } catch (e) {
+            this.dados = null;
+          }
+          this.carregando = false;
+        },
+      };
+    }
+  `
+
+  res.send(shellBarbeiro('financeiro', 'Meu Financeiro', body, b, script))
+})
+
+// Mounta /painel (login), recepção e área do barbeiro no app Express.
+// Deve ser chamado após createExpressApp() pois essas rotas ficam fora do prefixo do admin.
+export function registrarRotasPublicasPainel(appInstance) {
+  appInstance.use('/painel', loginRouter)
+  appInstance.use(`/${RECEPTION_SECRET}`, receptionRouter)
+  appInstance.use('/barbeiro', barbeiroRouter)
+}
+
+export { router as panelRouter, loginRouter, receptionRouter, barbeiroRouter, SECRET, RECEPTION_SECRET }
