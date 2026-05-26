@@ -243,9 +243,10 @@ export async function askClaude(userMessage, whatsappNumber) {
   const cliente  = getCliente(whatsappNumber)
   const conversa = getConversa(whatsappNumber)
 
-  // Expira histórico se última atividade > 12h (cliente "voltou do nada")
+  // Expira histórico se última atividade > 8h (cliente "voltou do nada")
   // Perfil/nome/agendamentos passados PERSISTEM — só o histórico de mensagens é zerado.
-  const HORAS_EXPIRACAO_HISTORICO = 12
+  // 8h evita que termos relativos como "amanhã" da véspera vazem para o dia seguinte.
+  const HORAS_EXPIRACAO_HISTORICO = 8
   if (conversa.ultima_atividade) {
     const horasInativo = (Date.now() - new Date(conversa.ultima_atividade).getTime()) / 3600000
     if (horasInativo > HORAS_EXPIRACAO_HISTORICO) {
@@ -257,7 +258,12 @@ export async function askClaude(userMessage, whatsappNumber) {
 
   const historicoAtual = conversa.historico || []
 
-  let messagesArray = [...historicoAtual, { role: 'user', content: userMessage }]
+  // Injeta timestamp da mensagem atual para o modelo ter noção de tempo entre turnos.
+  // Sem isso, "amanhã" da véspera pode parecer "amanhã" de hoje quando o cliente volta horas depois.
+  const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })
+  const userMessageComTimestamp = `[${agora}] ${userMessage}`
+
+  let messagesArray = [...historicoAtual, { role: 'user', content: userMessageComTimestamp }]
   let resumoUsar = conversa.resumo
 
   if (messagesArray.length > SUMMARIZE_AFTER) {
@@ -346,7 +352,7 @@ export async function askClaude(userMessage, whatsappNumber) {
       }
       const novoHistorico = [
         ...historicoAtual,
-        { role: 'user', content: userMessage },
+        { role: 'user', content: userMessageComTimestamp },
         { role: 'assistant', content: finalText },
       ].slice(-HISTORY_LIMIT * 2)
       salvarConversa(whatsappNumber, novoHistorico, resumoUsar)
@@ -385,7 +391,7 @@ export async function askClaude(userMessage, whatsappNumber) {
     // Salva no histórico com o texto do fallback
     const novoHistorico = [
       ...historicoAtual,
-      { role: 'user', content: userMessage },
+      { role: 'user', content: userMessageComTimestamp },
       { role: 'assistant', content: finalText },
     ].slice(-HISTORY_LIMIT * 2)
     salvarConversa(whatsappNumber, novoHistorico, resumoUsar)
