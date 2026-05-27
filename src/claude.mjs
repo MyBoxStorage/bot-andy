@@ -1,4 +1,4 @@
-import {
+﻿import {
   verificarDisponibilidade,
   criarAgendamentoTool,
   cancelarAgendamentoTool,
@@ -326,8 +326,10 @@ export async function askClaude(userMessage, whatsappNumber) {
       // Textos como "Fechado, X com Y. Vou reservar?" são perguntas legítimas pedindo última confirmação.
       const FECHAMENTO_PALAVRAS = /\b(fechad[oa]|agendad[oa]|confirmad[oa]|marcad[oa]|reservad[oa]|te espero|t[ôo] te esperando)\b/i
       const chamouTool = toolsChamadas.includes('criar_agendamento')
+      // Nao dispara se cliente ja tem agendamento futuro (bot confirmando algo existente)
+      const temAgendamentoExistente = (getAgendamentosFuturosCliente(whatsappNumber)?.length ?? 0) > 0
       let anunciouSucesso = false
-      if (!chamouTool && FECHAMENTO_PALAVRAS.test(finalText)) {
+      if (!chamouTool && !temAgendamentoExistente && FECHAMENTO_PALAVRAS.test(finalText)) {
         // Divide em sentenças e checa se alguma sentença que CONTÉM a palavra de fechamento NÃO termina com "?".
         const frases = finalText.split(/(?<=[.!?])\s+/)
         anunciouSucesso = frases.some(f => FECHAMENTO_PALAVRAS.test(f) && !f.trim().endsWith('?'))
