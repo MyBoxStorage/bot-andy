@@ -327,13 +327,29 @@ export async function askClaude(userMessage, whatsappNumber) {
       // Textos como "Fechado, X com Y. Vou reservar?" são perguntas legítimas pedindo última confirmação.
       const FECHAMENTO_PALAVRAS = /\b(fechad[oa]|agendad[oa]|confirmad[oa]|marcad[oa]|reservad[oa]|te espero|t[ôo] te esperando)\b/i
       const chamouTool = toolsChamadas.includes('criar_agendamento')
-      // Nao dispara se cliente ja tem agendamento futuro (bot confirmando algo existente)
-      const temAgendamentoExistente = (getAgendamentosFuturosCliente(whatsappNumber)?.length ?? 0) > 0
       let anunciouSucesso = false
-      if (!chamouTool && !temAgendamentoExistente && FECHAMENTO_PALAVRAS.test(finalText)) {
-        // Divide em sentenças e checa se alguma sentença que CONTÉM a palavra de fechamento NÃO termina com "?".
-        const frases = finalText.split(/(?<=[.!?])\s+/)
-        anunciouSucesso = frases.some(f => FECHAMENTO_PALAVRAS.test(f) && !f.trim().endsWith('?'))
+      if (!chamouTool && FECHAMENTO_PALAVRAS.test(finalText)) {
+        const temDataHora = /\b(\d{1,2}[h:]\d{0,2}|\d{1,2}\/\d{2}|hoje|amanhã|segunda|terça|quarta|quinta|sexta|sábado)\b/i.test(finalText)
+        if (temDataHora) {
+          const frases = finalText.split(/(?<=[.!?])\s+/)
+          const anunciouFrase = frases.some(f => FECHAMENTO_PALAVRAS.test(f) && !f.trim().endsWith('?'))
+          if (anunciouFrase) {
+            if (toolsChamadas.includes('verificar_disponibilidade')) {
+              // Verificou disponibilidade mas nao criou — definitivamente falhou
+              anunciouSucesso = true
+            } else {
+              // Nao verificou nem criou — checar se menciona horario de agendamento ja existente
+              const agsFuturos = getAgendamentosFuturosCliente(whatsappNumber) ?? []
+              const mencionaExistente = agsFuturos.some(ag => {
+                const d = new Date(ag.data_hora_inicio)
+                const hhmm = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0')
+                const hh = d.getHours() + 'h'
+                return finalText.includes(hhmm) || finalText.includes(hh)
+              })
+              anunciouSucesso = !mencionaExistente
+            }
+          }
+        }
       }
       if (anunciouSucesso) {
         logError(`🚨 Bot anunciou sucesso SEM chamar criar_agendamento. Texto bloqueado: "${finalText.slice(0, 120)}"`)
