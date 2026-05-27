@@ -1,4 +1,4 @@
-# ╔══════════════════════════════════════════════════════════════╗
+﻿# ╔══════════════════════════════════════════════════════════════╗
 # ║   ANDY NA REGUA — Script de inicializacao completo          ║
 # ║   Uso: .\iniciar.ps1                                         ║
 # ║   O que faz:                                                 ║
@@ -17,7 +17,16 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Split-Path -Parent $PSScriptRoot
+# $PSScriptRoot e a pasta onde o script esta (CHATBOT/)
+$Root = $PSScriptRoot
+if (-not (Test-Path (Join-Path $Root "package.json"))) {
+  # Fallback: tentar o diretorio atual
+  $Root = (Get-Location).Path
+}
+if (-not (Test-Path (Join-Path $Root "package.json"))) {
+  Write-Host "ERRO: nao encontrei package.json em $Root" -ForegroundColor Red
+  exit 1
+}
 Set-Location $Root
 
 $RED    = "Red"
