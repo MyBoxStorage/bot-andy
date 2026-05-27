@@ -1,4 +1,4 @@
-﻿﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -111,6 +111,112 @@
       text-align: center; font-size: 11px; color: #888; line-height: 1.5;
     }
     .footer-redesign a { color: #3b82f6; text-decoration: none; font-size: 11px; }
+
+    /* ── Passo 6: Notificação de confirmação ── */
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes checkPop {
+      0%   { transform: scale(0); opacity: 0; }
+      60%  { transform: scale(1.2); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .confirm-toast {
+      animation: slideDown 0.45s cubic-bezier(0.34,1.56,0.64,1) both;
+      background: linear-gradient(135deg, #071f0f 0%, #0a2a14 100%);
+      border: 1px solid rgba(74,222,128,0.25);
+      border-radius: 18px;
+      overflow: hidden;
+      position: relative;
+    }
+    .confirm-toast::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, #4ade80, transparent);
+    }
+    .confirm-toast-check {
+      animation: checkPop 0.5s cubic-bezier(0.34,1.56,0.64,1) 0.2s both;
+      width: 44px; height: 44px; border-radius: 50%;
+      background: rgba(74,222,128,0.12);
+      border: 1px solid rgba(74,222,128,0.3);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .confirm-toast-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(74,222,128,0.08);
+      border: 1px solid rgba(74,222,128,0.15);
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 11px; color: #86efac; font-weight: 500;
+    }
+
+    /* ── Passo 6: Produtos ── */
+    .prod-chip { flex-shrink: 0; padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: all .15s; white-space: nowrap; }
+    .prod-chip-active { background: #fff; color: #000; border-color: #fff; }
+    .prod-chip-inactive { background: transparent; color: #666; border-color: rgba(255,255,255,0.10); }
+
+    .prod-card {
+      background: #0e0e0e;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex; flex-direction: column;
+      transition: border-color 0.2s, transform 0.15s;
+      cursor: pointer;
+    }
+    .prod-card:hover { border-color: rgba(255,255,255,0.15); transform: translateY(-2px); }
+    .prod-card:active { transform: scale(0.97); }
+
+    .prod-card-img {
+      aspect-ratio: 1;
+      background: #141414;
+      display: flex; align-items: center; justify-content: center;
+      position: relative; overflow: hidden;
+    }
+    .prod-card-img::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at 30% 30%, rgba(255,255,255,0.03), transparent 60%);
+    }
+    .prod-card-badge {
+      position: absolute; top: 8px; left: 8px;
+      font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px;
+    }
+    .prod-card-body { padding: 10px 12px 12px; display: flex; flex-direction: column; flex: 1; gap: 4px; }
+    .prod-card-name { font-size: 12px; font-weight: 600; color: #f0ece4; line-height: 1.3; }
+    .prod-card-desc { font-size: 10px; color: #555; line-height: 1.4; flex: 1; }
+    .prod-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+    .prod-card-price { font-size: 14px; font-weight: 700; color: #ffffff; }
+    .prod-card-btn {
+      font-size: 10px; font-weight: 600;
+      background: #052e16; color: #4ade80;
+      border: 1px solid rgba(74,222,128,0.25);
+      border-radius: 999px; padding: 4px 12px;
+      text-decoration: none; white-space: nowrap;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .prod-card-btn:hover { background: #073d1e; border-color: rgba(74,222,128,0.45); }
+
+    /* Badge cores por categoria */
+    .badge-cera    { background: rgba(234,179, 8,0.15); color: #fbbf24; }
+    .badge-barba   { background: rgba(59,130,246,0.15); color: #60a5fa; }
+    .badge-shampoo { background: rgba(168, 85,247,0.15); color: #c084fc; }
+    .badge-oleo    { background: rgba(234,179, 8,0.12); color: #fcd34d; }
+    .badge-outro   { background: rgba(255,255,255,0.07); color: #999; }
+
+    /* ── CTA agendar novamente ── */
+    .btn-reagendar {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; min-height: 52px; border-radius: 14px;
+      background: #cc1f1f; color: #fff; font-weight: 600; font-size: 15px;
+      border: none; cursor: pointer; transition: background 0.15s, transform 0.1s;
+      margin-top: 24px;
+    }
+    .btn-reagendar:hover { background: #e53535; }
+    .btn-reagendar:active { transform: scale(0.98); }
   </style>
 </head>
 <body class="bg-[#0a0a0a] text-[#fafafa] min-h-screen pb-28" x-data="agendamento()" x-cloak>
@@ -318,54 +424,91 @@
       </button>
     </section>
 
-    <!-- Passo 5: Confirmação -->
-    <!-- Passo 6: Marketplace -->
+    <!-- Passo 6: Confirmação + Marketplace -->
     <section x-show="passo === 6" x-transition.opacity class="pb-10">
-      <!-- Notificacao de confirmacao no topo -->
-      <div x-show="agendamentoOk" class="mb-5 rounded-2xl border border-[#166534]/50 bg-[#052e16] p-4">
+
+      <!-- Toast de confirmação -->
+      <div x-show="agendamentoOk" class="confirm-toast mb-6 p-4">
         <div class="flex items-start gap-3">
-          <div class="w-8 h-8 rounded-full bg-[#14532d] flex items-center justify-center flex-shrink-0 mt-0.5">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <div class="confirm-toast-check">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           </div>
           <div class="flex-1 min-w-0">
-            <div class="text-[#4ade80] text-sm font-semibold mb-1">Agendado! Confirmacao no WhatsApp. ✓</div>
-            <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#86efac]">
-              <span x-text="agendamentoOk?.servico_nome"></span>
-              <span x-text="agendamentoOk?.staff_nome"></span>
-              <span x-text="agendamentoOk?.data_label + ' • ' + agendamentoOk?.hora_label"></span>
-              <span class="font-semibold" x-text="'R$ ' + (agendamentoOk?.preco ? Number(agendamentoOk.preco).toFixed(2) : '—')"></span>
+            <div class="flex items-center gap-2 mb-2 flex-wrap">
+              <span class="text-[#f0fdf4] font-semibold text-sm">Agendamento confirmado!</span>
+              <span class="confirm-toast-pill">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.82 19.79 19.79 0 01.07 1.18 2 2 0 012.03 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92v2z"/></svg>
+                WhatsApp enviado
+              </span>
+            </div>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+              <div>
+                <div class="text-[10px] text-[#4ade80]/50 uppercase tracking-widest mb-0.5">Serviço</div>
+                <div class="text-[#86efac] text-xs font-medium" x-text="agendamentoOk?.servico_nome"></div>
+              </div>
+              <div>
+                <div class="text-[10px] text-[#4ade80]/50 uppercase tracking-widest mb-0.5">Barbeiro</div>
+                <div class="text-[#86efac] text-xs font-medium" x-text="agendamentoOk?.staff_nome"></div>
+              </div>
+              <div>
+                <div class="text-[10px] text-[#4ade80]/50 uppercase tracking-widest mb-0.5">Data & Hora</div>
+                <div class="text-[#86efac] text-xs font-medium" x-text="(agendamentoOk?.data_label || '') + ' · ' + (agendamentoOk?.hora_label || '')"></div>
+              </div>
+              <div>
+                <div class="text-[10px] text-[#4ade80]/50 uppercase tracking-widest mb-0.5">Valor</div>
+                <div class="text-[#4ade80] text-sm font-bold" x-text="'R$ ' + (agendamentoOk?.preco ? Number(agendamentoOk.preco).toFixed(2) : '—')"></div>
+              </div>
             </div>
           </div>
-          <button type="button" @click="agendamentoOk = null" class="text-[#4ade80]/50 hover:text-[#4ade80] text-lg leading-none ml-1">✕</button>
+          <button type="button" @click="agendamentoOk = null" class="text-[#4ade80]/30 hover:text-[#4ade80]/70 transition mt-0.5 flex-shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
         </div>
       </div>
-      <div class="text-center mb-5">
-        <h2 class="text-xl font-bold mb-1">Produtos da barbearia</h2>
+
+      <!-- Cabeçalho marketplace -->
+      <div class="mb-4">
+        <h2 class="text-lg font-bold mb-0.5">Produtos da barbearia</h2>
         <p class="text-[#555] text-sm">Leve para casa o que usamos aqui.</p>
       </div>
-      <div class="grid grid-cols-2 gap-3">
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Cera Incolor Two Brothers 70g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Modelagem longa duracao, fixacao alta.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 42.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Cera%20Incolor%20Two%20Brothers%2070g%20%28R%24%2042.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Cera Modeladora Black Filder Cut 150g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Pigmentacao preta temporaria.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 45.00</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Cera%20Modeladora%20Black%20Filder%20Cut%20150g%20%28R%24%2045.00%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Dom Pelo Minoxidil 15% 120ml</div><div class="text-[10px] text-[#444] leading-snug flex-1">Estimula crescimento de barba e cabelo.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 89.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Dom%20Pelo%20Minoxidil%2015%25%20120ml%20%28R%24%2089.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Dom Pelo Shampoo Anticaspa 250ml</div><div class="text-[10px] text-[#444] leading-snug flex-1">Combate caspa, refresca o couro.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 36.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Dom%20Pelo%20Shampoo%20Anticaspa%20250ml%20%28R%24%2036.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Dom Pelo Shampoo Escurecedor 250ml</div><div class="text-[10px] text-[#444] leading-snug flex-1">Escurece fios brancos em 5min.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 42.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Dom%20Pelo%20Shampoo%20Escurecedor%20250ml%20%28R%24%2042.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Dom Pelo Shampoo Minoxidil 3em1 250ml</div><div class="text-[10px] text-[#444] leading-snug flex-1">Cresce, fortalece e hidrata.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 59.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Dom%20Pelo%20Shampoo%20Minoxidil%203em1%20250ml%20%28R%24%2059.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Element Oleo de Barba 30ml</div><div class="text-[10px] text-[#444] leading-snug flex-1">Repara e hidrata a barba.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 49.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Element%20Oleo%20de%20Barba%2030ml%20%28R%24%2049.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Fox Cera Modeladora Matte 78g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Fixacao poderosa, efeito matte.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 45.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Fox%20Cera%20Modeladora%20Matte%2078g%20%28R%24%2045.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Fox Cera Modeladora UV 80g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Alta fixacao com protecao UV.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 47.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Fox%20Cera%20Modeladora%20UV%2080g%20%28R%24%2047.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Fox Pasta Laranja 80g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Fixacao equilibrada, matte flexivel.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 44.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Fox%20Pasta%20Laranja%2080g%20%28R%24%2044.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Fox Wax Efeito Seco 80g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Acabamento matte, sem brilho.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 46.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Fox%20Wax%20Efeito%20Seco%2080g%20%28R%24%2046.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Infinity Balm para Barba 120g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Hidratante, reduz coceira.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 52.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Infinity%20Balm%20para%20Barba%20120g%20%28R%24%2052.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Pasta Premium Fox For Men 80g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Extra forte, seco e natural.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 44.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Pasta%20Premium%20Fox%20For%20Men%2080g%20%28R%24%2044.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Piratas Pasta Caramelo 150g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Modelagem premium, aroma caramelo.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 54.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Piratas%20Pasta%20Caramelo%20150g%20%28R%24%2054.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Pomada Matte Caramelo Filder Cut 160g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Acabamento opaco e natural.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 45.00</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Pomada%20Matte%20Caramelo%20Filder%20Cut%20160g%20%28R%24%2045.00%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Pomada Matte Undercut Mak Line 150g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Efeito matte extra forte.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 45.00</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Pomada%20Matte%20Undercut%20Mak%20Line%20150g%20%28R%24%2045.00%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Pomada Efeito Perola Filder Cut 160g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Brilho perolado, aspecto molhado.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 45.00</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Pomada%20Efeito%20Perola%20Filder%20Cut%20160g%20%28R%24%2045.00%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Pomada Efeito Teia Undercut 130g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Modela, hidrata, controla frizz.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 45.00</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Pomada%20Efeito%20Teia%20Undercut%20130g%20%28R%24%2045.00%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Shampoo Hidratante Vision 200ml</div><div class="text-[10px] text-[#444] leading-snug flex-1">Limpeza profunda, reduz caspa.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 39.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Shampoo%20Hidratante%20Vision%20200ml%20%28R%24%2039.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
-<div class="bg-[#111] border border-white/8 rounded-2xl overflow-hidden flex flex-col"><div class="bg-[#161616] flex items-center justify-center" style="aspect-ratio:1"><svg width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="#2a2a2a" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg></div><div class="p-3 flex flex-col flex-1"><div class="text-[11px] font-semibold text-white leading-tight mb-1">Two Brothers Pomada Creme Seca 70g</div><div class="text-[10px] text-[#444] leading-snug flex-1">Fixacao forte, efeito seco.</div><div class="flex items-center justify-between mt-3"><span class="text-sm font-bold">R$ 48.90</span><a href="https://wa.me/5547000000001?text=Ola%21%20Quero%20comprar%3A%20Two%20Brothers%20Pomada%20Creme%20Seca%2070g%20%28R%24%2048.90%29" target="_blank" class="text-[10px] bg-[#052e16] text-[#4ade80] border border-[#166534]/60 px-3 py-1 rounded-full">Pedir</a></div></div></div>
+
+      <!-- Filtros de categoria de produtos -->
+      <div class="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-1 px-1">
+        <button type="button" @click="prodCatAtiva = null"
+          class="prod-chip" :class="prodCatAtiva === null ? 'prod-chip-active' : 'prod-chip-inactive'">Todos</button>
+        <button type="button" @click="prodCatAtiva = 'cera'"
+          class="prod-chip" :class="prodCatAtiva === 'cera' ? 'prod-chip-active' : 'prod-chip-inactive'">Ceras & Pastas</button>
+        <button type="button" @click="prodCatAtiva = 'barba'"
+          class="prod-chip" :class="prodCatAtiva === 'barba' ? 'prod-chip-active' : 'prod-chip-inactive'">Barba</button>
+        <button type="button" @click="prodCatAtiva = 'shampoo'"
+          class="prod-chip" :class="prodCatAtiva === 'shampoo' ? 'prod-chip-active' : 'prod-chip-inactive'">Shampoo</button>
       </div>
-      <button type="button" @click="reset()" class="w-full min-h-[48px] rounded-2xl bg-[#cc1f1f] text-white font-semibold mt-6 transition hover:bg-[#e53535]">Fazer outro agendamento</button>
+
+      <!-- Grid de produtos -->
+      <div class="grid grid-cols-2 gap-3">
+        <template x-for="p in produtosFiltrados" :key="p.nome">
+          <a :href="p.link" target="_blank" class="prod-card">
+            <div class="prod-card-img">
+              <svg width="36" height="36" viewBox="0 0 48 48" fill="none" stroke="#222" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg>
+              <span class="prod-card-badge" :class="'badge-' + p.cat" x-text="labelProdCat(p.cat)"></span>
+            </div>
+            <div class="prod-card-body">
+              <div class="prod-card-name" x-text="p.nome"></div>
+              <div class="prod-card-desc" x-text="p.desc"></div>
+              <div class="prod-card-footer">
+                <span class="prod-card-price" x-text="'R$ ' + p.preco.toFixed(2).replace('.', ',')"></span>
+                <span class="prod-card-btn">Pedir</span>
+              </div>
+            </div>
+          </a>
+        </template>
+      </div>
+
+      <!-- CTA reagendar -->
+      <button type="button" @click="reset()" class="btn-reagendar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
+        Fazer outro agendamento
+      </button>
     </section>
   </main>
 
@@ -392,6 +535,33 @@
       return fetch(`${API()}${path}`, { ...opts, headers })
     }
 
+    const WA = '5547000000001'
+    const PRODUTOS = [
+      { nome: 'Cera Incolor Two Brothers 70g',       desc: 'Modelagem longa duração, fixação alta.',       preco: 42.90, cat: 'cera'    },
+      { nome: 'Cera Modeladora Black Filder Cut 150g',desc: 'Pigmentação preta temporária.',                preco: 45.00, cat: 'cera'    },
+      { nome: 'Fox Cera Modeladora Matte 78g',        desc: 'Fixação poderosa, efeito matte.',              preco: 45.90, cat: 'cera'    },
+      { nome: 'Fox Cera Modeladora UV 80g',           desc: 'Alta fixação com proteção UV.',                preco: 47.90, cat: 'cera'    },
+      { nome: 'Fox Pasta Laranja 80g',                desc: 'Fixação equilibrada, matte flexível.',         preco: 44.90, cat: 'cera'    },
+      { nome: 'Fox Wax Efeito Seco 80g',              desc: 'Acabamento matte, sem brilho.',                preco: 46.90, cat: 'cera'    },
+      { nome: 'Pasta Premium Fox For Men 80g',        desc: 'Extra forte, seco e natural.',                 preco: 44.90, cat: 'cera'    },
+      { nome: 'Piratas Pasta Caramelo 150g',          desc: 'Modelagem premium, aroma caramelo.',           preco: 54.90, cat: 'cera'    },
+      { nome: 'Pomada Matte Caramelo Filder Cut 160g',desc: 'Acabamento opaco e natural.',                  preco: 45.00, cat: 'cera'    },
+      { nome: 'Pomada Matte Undercut Mak Line 150g',  desc: 'Efeito matte extra forte.',                    preco: 45.00, cat: 'cera'    },
+      { nome: 'Pomada Efeito Perola Filder Cut 160g', desc: 'Brilho perolado, aspecto molhado.',            preco: 45.00, cat: 'cera'    },
+      { nome: 'Pomada Efeito Teia Undercut 130g',     desc: 'Modela, hidrata, controla frizz.',             preco: 45.00, cat: 'cera'    },
+      { nome: 'Two Brothers Pomada Creme Seca 70g',   desc: 'Fixação forte, efeito seco.',                  preco: 48.90, cat: 'cera'    },
+      { nome: 'Infinity Balm para Barba 120g',        desc: 'Hidratante, reduz coceira.',                   preco: 52.90, cat: 'barba'   },
+      { nome: 'Element Oleo de Barba 30ml',           desc: 'Repara e hidrata a barba.',                    preco: 49.90, cat: 'barba'   },
+      { nome: 'Dom Pelo Minoxidil 15% 120ml',         desc: 'Estimula crescimento de barba e cabelo.',      preco: 89.90, cat: 'barba'   },
+      { nome: 'Dom Pelo Shampoo Anticaspa 250ml',     desc: 'Combate caspa, refresca o couro.',             preco: 36.90, cat: 'shampoo' },
+      { nome: 'Dom Pelo Shampoo Escurecedor 250ml',   desc: 'Escurece fios brancos em 5min.',               preco: 42.90, cat: 'shampoo' },
+      { nome: 'Dom Pelo Shampoo Minoxidil 3em1 250ml',desc: 'Cresce, fortalece e hidrata.',                 preco: 59.90, cat: 'shampoo' },
+      { nome: 'Shampoo Hidratante Vision 200ml',      desc: 'Limpeza profunda, reduz caspa.',               preco: 39.90, cat: 'shampoo' },
+    ].map(p => ({
+      ...p,
+      link: `https://wa.me/${WA}?text=${encodeURIComponent('Olá! Quero comprar: ' + p.nome + ' (R$ ' + p.preco.toFixed(2) + ')')}`
+    }))
+
     document.addEventListener('alpine:init', () => {
       Alpine.data('agendamento', () => ({
         passo: 1,
@@ -412,6 +582,16 @@
         carregandoSlots: false,
         agendamentoOk: null,
         categoriaAtiva: null,
+        prodCatAtiva: null,
+
+        get produtosFiltrados() {
+          if (!this.prodCatAtiva) return PRODUTOS
+          return PRODUTOS.filter(p => p.cat === this.prodCatAtiva)
+        },
+
+        labelProdCat(cat) {
+          return { cera: 'Cera', barba: 'Barba', shampoo: 'Shampoo', oleo: 'Óleo' }[cat] || cat
+        },
 
         async init() {
           try {
@@ -588,6 +768,7 @@
           this.agendamentoOk = null
           this.slots = []
           this.categoriaAtiva = null
+          this.prodCatAtiva = null
           this.countdown = 5
         },
       }))
