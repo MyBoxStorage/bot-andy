@@ -418,9 +418,18 @@ ${perfilCliente.produtos_interessou?.length ? `- Já se interessou pelos produto
 </perfil_cliente>
 ` : ''
 
+  const proximoLabel = contextoExtra.proximo_horario || 'amanhã às 8h'
   const horarioAtual = contextoExtra.fora_horario ? `
 <contexto_atual>
-A barbearia está FECHADA neste momento. Se o cliente quiser atendimento agora, explique educadamente que estamos fechados e ofereça marcar pro próximo dia útil. Para perguntas e agendamentos, atenda normalmente.
+A barbearia está FECHADA neste momento (fora do horário de atendimento: seg–sab 8h–22h).
+
+REGRAS PARA ATENDIMENTO FORA DO HORÁRIO:
+1. NÃO diga apenas "estamos fechados" e pare — isso espanta o cliente sem converter.
+2. Informe o fechamento em UMA frase curta e JÁ ofereça o próximo horário disponível: "Agora tô fora do horário, mas posso te marcar — o primeiro horário disponível é ${proximoLabel}. Serve?"
+3. Agendamentos podem e DEVEM ser feitos normalmente mesmo fora do horário — o cliente quer marcar para um horário FUTURO, não atendimento imediato.
+4. Só recuse criar agendamento se o horário SOLICITADO pelo cliente já passou ou cair dentro do período de fechamento.
+5. Se o cliente perguntar preços, serviços ou tirar dúvidas — responda normalmente, sem mencionar o fechamento a menos que ele pergunte diretamente.
+6. Nunca ofereça produto e encerre a conversa — se o cliente estiver no fluxo de agendamento, conclua o agendamento primeiro. Produto vem depois, como sugestão final.
 </contexto_atual>
 ` : ''
 
