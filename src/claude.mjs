@@ -22,6 +22,7 @@ import {
   enfileirarMensagem,
   getConfig,
   upsertCliente,
+  getAgendamentosFuturosCliente,
 } from './db.mjs'
 import { M } from './messages.mjs'
 import { log, error as logError } from './logger.mjs'
