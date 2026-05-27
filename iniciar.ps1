@@ -164,7 +164,10 @@ if (Test-Path $envPath) {
   } else {
     $envContent = $envContent.TrimEnd() + "`nBOOKING_API_BASE=$tunnelUrl`n"
   }
-  Set-Content -Path $envPath -Value $envContent -Encoding UTF8 -NoNewline
+  # Escrever via arquivo temporario para evitar conflito com o bot
+  $tmpEnv = $envPath + ".tmp"
+  [System.IO.File]::WriteAllText($tmpEnv, $envContent, [System.Text.Encoding]::UTF8)
+  Move-Item -Path $tmpEnv -Destination $envPath -Force
   OK ".env -> BOOKING_API_BASE atualizado"
 }
 
