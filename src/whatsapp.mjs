@@ -300,11 +300,11 @@ async function processarMensagem(message) {
       const nota = Math.min(10, Math.max(0, Number(matchNota[1])))
       registrarFeedbackNota(aguardandoFeedback.id, nota)
 
-      if (nota >= 9) {
+      if (nota >= 8) {
         const reviewLink = getConfig('google_review_link') || ''
-        const msg = reviewLink
-          ? M.feedbackPositivo().replace('[link Google review]', reviewLink)
-          : M.feedbackPositivo().replace('[link Google review]', '(link em breve)')
+
+        const msg = M.feedbackPositivo(reviewLink)
+        // (feedbackPositivo já trata link vazio)
         await client.sendText(userPhone, msg)
         logMensagem(userPhone, 'saida', msg, 'texto')
       } else if (nota <= 6) {
@@ -314,7 +314,7 @@ async function processarMensagem(message) {
         await notificarAndy(`⚠️ Feedback negativo (${nota}/10) de ${cliente?.nome || userPhone} — agendamento #${aguardandoFeedback.id}`)
         marcarAguardandoAndy(userPhone, 'feedback_negativo')
       } else {
-        const msg = `Valeu pelo retorno, brother! 👊`
+        const msg = `Valeu pelo feedback, brother! 🙏 Qualquer detalhe que quiser melhorar pode falar — tamos sempre evoluindo.`
         await client.sendText(userPhone, msg)
         logMensagem(userPhone, 'saida', msg, 'texto')
       }

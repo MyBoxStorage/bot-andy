@@ -1,4 +1,4 @@
-export const M = {
+﻿export const M = {
   lembrete2h: ({ nome, hora, servico, barbeiro }) =>
     `Fala${nome ? `, ${nome}` : ''}! 👊 Tua reserva na *Andy Na Régua* é hoje às *${hora}* (${servico} com ${barbeiro}).\n\nConfirma presença? Responde *SIM* ou *NÃO*.\n\n_Você tem até 1h antes pra confirmar._`,
 
@@ -43,7 +43,7 @@ export const M = {
     `Show, brother! 🙌 Se puder deixar uma avaliação no Google ajuda demais a barbearia:\n\n${link || '[link Google review]'}\n\nValeu de mais!`,
 
   feedbackNegativo: () =>
-    `Poxa, foi mal mesmo. 😕 Tô passando pro Andy direto pra ele te responder. Valeu por avisar.`,
+    `Poxa, foi mal mesmo. 😕 Me conta o que aconteceu pra gente melhorar — pode falar à vontade. Tô passando pro Andy também.`,
 
   reativacao: ({ nome, dias }) =>
     `Fala${nome ? `, ${nome}` : ''}! ✂️ Faz uns ${dias} dias do teu último corte na Andy Na Régua. Bora marcar essa semana?`,
