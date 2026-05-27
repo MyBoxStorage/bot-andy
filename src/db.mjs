@@ -1268,7 +1268,7 @@ export function getClientesParaReativar(diasMin = 35, intervaloReativacao = 60) 
       AND EXISTS (
         SELECT 1 FROM agendamentos a
         WHERE a.whatsapp_number = c.whatsapp_number
-          AND a.status = 'concluido'
+          AND a.status IN ('concluido', 'confirmado')
           AND datetime(a.data_hora_inicio, '+${diasMin} days') <= datetime('now')
       )
       AND NOT EXISTS (
@@ -1583,7 +1583,7 @@ export function calcularComissaoPeriodo(barbeiroId, dataInicio, dataFim) {
       LEFT JOIN comissao_overrides co
         ON co.barbeiro_id = a.staff_id AND co.servico_id = a.servico_id
       WHERE a.staff_id = ?
-        AND a.status = 'concluido'
+        AND a.status IN ('concluido', 'confirmado')
         AND date(a.data_hora_inicio) >= date(?)
         AND date(a.data_hora_inicio) <= date(?)
       ORDER BY a.data_hora_inicio ASC
