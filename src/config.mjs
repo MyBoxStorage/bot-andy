@@ -1,4 +1,4 @@
-/** ================================================================
+﻿/** ================================================================
  *  config.mjs — Configuração central da Andy Na Régua
  *  Edite aqui sem mexer no resto do código.
  * ================================================================ */
@@ -23,19 +23,19 @@ export const business = {
 export const staff = [
   {
     id:             'barbeiro1',
-    name:           'Barbeiro 1',
+    name:           'Michael',
     calendarEnvKey: 'GOOGLE_CALENDAR_ID_BARBEIRO1',
     active:         true,
   },
   {
     id:             'barbeiro2',
-    name:           'Barbeiro 2',
+    name:           'Gabriel',
     calendarEnvKey: 'GOOGLE_CALENDAR_ID_BARBEIRO2',
     active:         true,
   },
   {
     id:             'barbeiro3',
-    name:           'Barbeiro 3',
+    name:           'Douglas',
     calendarEnvKey: 'GOOGLE_CALENDAR_ID_BARBEIRO3',
     active:         true,
   },
@@ -565,11 +565,11 @@ Sinais de confirmação que disparam a tool **IMEDIATAMENTE**:
 
 EXEMPLO CORRETO:
 Cliente: "Pode ser"
-Bot: [chama criar_agendamento] → recebe sucesso:true → "Fechado, Pedro! Corte hoje 10h15 com Barbeiro 1. Te espero ✂️"
+Bot: [chama criar_agendamento] → recebe sucesso:true → "Fechado, Pedro! Corte hoje 10h15 com Michael. Te espero ✂️"
 
 EXEMPLO ERRADO (proibido — bot mente pro cliente):
 Cliente: "Pode ser"
-Bot: "Fechado, Pedro! Corte hoje 10h15 com Barbeiro 1 ✂️"  ← SEM chamar tool. PROIBIDO.
+Bot: "Fechado, Pedro! Corte hoje 10h15 com Michael ✂️"  ← SEM chamar tool. PROIBIDO.
 
 ═══════════════════════════════════════════════════
 REGRAS DURAS (inquebráveis)
