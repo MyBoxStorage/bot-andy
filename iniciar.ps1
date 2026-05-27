@@ -109,39 +109,28 @@ if ($botOk) {
 }
 
 # ── Passo 3: Abrir tunel Cloudflare ─────────────────────────────
-Titulo "3. Abrindo tunel Cloudflare"
-$tunnelLog = Join-Path $env:TEMP "andy-tunnel.log"
-if (Test-Path $tunnelLog) { Remove-Item $tunnelLog -Force }
+Titulo "3. Tunel ngrok (URL fixa)"
+# O ngrok free tem URL estatica vinculada a conta — nao precisa de cloudflare
+$ngrokRunning = $false
+try {
+  $null = Invoke-WebRequest -Uri "http://127.0.0.1:4040/api/tunnels" -UseBasicParsing -TimeoutSec 3
+  $ngrokRunning = $true
+} catch {}
 
-$tunnelJob = Start-Job -ScriptBlock {
-  param($Port, $Log, $Dir)
-  Set-Location $Dir
-  & npx --yes cloudflared@latest tunnel --url "http://127.0.0.1:$Port" *>&1 |
-    Out-File -FilePath $Log -Encoding utf8 -Append
-} -ArgumentList $Port, $tunnelLog, $Root
-
-INFO "Aguardando URL do tunel (ate 90s)..."
-
-$tunnelUrl = $null
-$deadline = (Get-Date).AddSeconds(90)
-while ((Get-Date) -lt $deadline -and -not $tunnelUrl) {
-  Start-Sleep -Seconds 2
-  if (Test-Path $tunnelLog) {
-    $logContent = Get-Content $tunnelLog -Raw -ErrorAction SilentlyContinue
-    if ($logContent -match '(https://[a-z0-9-]+\.trycloudflare\.com)') {
-      $tunnelUrl = $Matches[1].TrimEnd('/')
-    }
+if ($ngrokRunning) {
+  $tunnelInfo = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -TimeoutSec 5
+  $tunnelUrl = ($tunnelInfo.tunnels | Where-Object { $_.proto -eq "https" } | Select-Object -First 1).public_url
+  if ($tunnelUrl) {
+    OK "Tunel ngrok ativo: $tunnelUrl"
+  } else {
+    $tunnelUrl = "https://connivingly-unsulfureous-miesha.ngrok-free.dev"
+    INFO "Usando URL ngrok padrao: $tunnelUrl"
   }
+} else {
+  $tunnelUrl = "https://connivingly-unsulfureous-miesha.ngrok-free.dev"
+  INFO "ngrok nao detectado — usando URL fixa: $tunnelUrl"
+  INFO "Abra outro terminal e rode: ngrok http 21466"
 }
-
-if (-not $tunnelUrl) {
-  ERR "Nao foi possivel obter URL do tunel."
-  ERR "Log em: $tunnelLog"
-  Stop-Job $tunnelJob -ErrorAction SilentlyContinue
-  exit 1
-}
-
-OK "Tunel ativo: $tunnelUrl"
 
 # ── Passo 4: Atualizar config.js ─────────────────────────────────
 Titulo "4. Atualizando config.js"
