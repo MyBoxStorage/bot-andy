@@ -1,4 +1,4 @@
-import wppconnect from '@wppconnect-team/wppconnect'
+﻿import wppconnect from '@wppconnect-team/wppconnect'
 import express    from 'express'
 import OpenAI     from 'openai'
 import fs         from 'fs'
@@ -108,6 +108,21 @@ export function createExpressApp() {
     `)
   })
 
+
+  // CORS — permite que bot-andy.vercel.app acesse a API do servidor local via ngrok
+  app.use((req, res, next) => {
+    const allowed = ['https://bot-andy.vercel.app', 'http://localhost:21466']
+    const origin = req.headers.origin
+    if (origin && allowed.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin)
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*')
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    if (req.method === 'OPTIONS') return res.sendStatus(204)
+    next()
+  })
   app.use(express.urlencoded({ extended: true }))
   app.use(bookingRouter)
   app.use(`/${SECRET}`, panelRouter)
