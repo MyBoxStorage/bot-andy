@@ -137,6 +137,48 @@ function formatData(iso) {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Sao_Paulo' })
 }
 
+/** Extrai HH:MM de ISO8601 no fuso America/Sao_Paulo (para inputs type=time). */
+function isoParaHorarioInput(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleTimeString('en-GB', {
+    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Sao_Paulo',
+  })
+}
+
+/** Slots passados sem agendamento — só dia atual, intervalo 30 min. */
+function gerarSlotsFantasmaAgendaHoje(data, ags) {
+  if (data !== hojeStr()) return []
+  const abertura = getConfig('horario_abertura') || '08:00'
+  const fechamento = getConfig('horario_fechamento') || '22:00'
+  const [aH, aM] = abertura.split(':').map(Number)
+  const [cH, cM] = fechamento.split(':').map(Number)
+  const agoraMs = Date.now()
+  const fantasmas = []
+  let h = aH
+  let m = aM
+
+  while (h < cH || (h === cH && m < cM)) {
+    const slotIso = `${data}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00-03:00`
+    const slotMs = new Date(slotIso).getTime()
+    if (slotMs > agoraMs) break
+
+    const ocupado = ags.some((ag) => {
+      if (ag.status === 'cancelado') return false
+      const ini = new Date(ag.data_hora_inicio).getTime()
+      const fim = new Date(ag.data_hora_fim).getTime()
+      return slotMs >= ini && slotMs < fim
+    })
+
+    if (!ocupado) {
+      fantasmas.push({ tipo: 'ghost', sortMs: slotMs, hora: formatHora(slotIso) })
+    }
+
+    m += 30
+    while (m >= 60) { h += 1; m -= 60 }
+  }
+  return fantasmas
+}
+
 function hojeStr() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
 }
@@ -395,6 +437,7 @@ tbody tr:hover td{background:rgba(255,255,255,0.02)}
 .agenda-price{font-size:.94rem;font-weight:700;color:var(--green);min-width:70px;text-align:right;font-variant-numeric:tabular-nums}
 .agenda-price.cancelled{color:var(--muted2);text-decoration:line-through}
 .agenda-presenca-row{border-top:1px solid var(--border);margin-top:.75rem;padding-top:.75rem}
+.agenda-card--ghost{opacity:.25;border-style:dashed;pointer-events:none}
 
 /* ── PRODUCT CARDS ── */
 .product-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
@@ -750,7 +793,6 @@ function shell(page, title, subtitle, body, script = '', secret = SECRET) {
     <img src="/logo.png" alt="Andy Na Régua">
     </div>
     <nav class="nav">
-      <div class="nav-label">Menu</div>
       ${navHtml}
     </nav>
     <div>
@@ -1437,7 +1479,7 @@ function agendaHandler(secret) {
       `<option value="${s.id}" ${staffFilter===s.id?'selected':''}>${s.name}</option>`
     ).join('')
 
-    const agendaCards = ags.length ? ags.map(ag => {
+    const renderAgendaCard = (ag, data) => {
       const preco = ag.servico_preco || 0
       const now = new Date()
       const inicio = new Date(ag.data_hora_inicio)
@@ -1463,6 +1505,7 @@ function agendaHandler(secret) {
           ${badge(ag.status)}
           <div class="agenda-price${ag.status==='cancelado' ? ' cancelled' : ''}">R$ ${preco.toFixed(2)}</div>
           ${ag.status==='confirmado'?`
+          <a href="/${secret}/agenda/editar/${ag.id}?data=${encodeURIComponent(data)}" class="btn btn-ghost btn-sm" title="Editar">${ic.gear}</a>
           <form method="POST" action="/${secret}/agenda/cancelar">
             <input type="hidden" name="id" value="${ag.id}">
             <input type="hidden" name="data" value="${data}">
@@ -1491,10 +1534,36 @@ function agendaHandler(secret) {
             : ''
         }
       </div>`
-    }).join('') : `<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Nenhum agendamento para este dia</div></div>`
+    }
+
+    const renderGhostCard = (ghost) => `
+      <div class="agenda-card agenda-card--ghost">
+        <div class="agenda-time-block">
+          <div class="agenda-hour">${ghost.hora}</div>
+          <div class="agenda-end">slot livre</div>
+        </div>
+        <div class="agenda-body" style="color:var(--muted2)">— disponível —</div>
+        <div class="agenda-aside"></div>
+      </div>`
+
+    const itensAgenda = [
+      ...ags.map((ag) => ({
+        tipo: 'ag',
+        sortMs: new Date(ag.data_hora_inicio).getTime(),
+        ag,
+      })),
+      ...(!staffFilter ? gerarSlotsFantasmaAgendaHoje(data, ags).map((g) => ({ ...g, tipo: 'ghost' })) : []),
+    ].sort((a, b) => a.sortMs - b.sortMs)
+
+    const agendaCards = itensAgenda.length
+      ? itensAgenda.map((item) => (
+          item.tipo === 'ghost' ? renderGhostCard(item) : renderAgendaCard(item.ag, data)
+        )).join('')
+      : `<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Nenhum agendamento para este dia</div></div>`
 
     const body = `
     ${msg==='criado'?`<div class="alert alert-success">${ic.check} Agendamento criado com sucesso!</div>`:''}
+    ${msg==='editado'?`<div class="alert alert-success">${ic.check} Agendamento atualizado.</div>`:''}
     ${msg==='presenca_ok'?`<div class="alert alert-success">${ic.check} Presença confirmada — agendamento concluído.</div>`:''}
     ${msg==='noshow_ok'?`<div class="alert" style="background:var(--amber-dim);border:1px solid rgba(245,158,11,.3);color:var(--amber);padding:.7rem 1rem;border-radius:var(--radius-sm);font-size:.8rem;display:flex;align-items:center;gap:.5rem;margin-bottom:1rem">${ic.warn} No-show registrado.</div>`:''}
     <div class="stats">
@@ -1581,6 +1650,141 @@ function cancelarHandler(secret) {
 
 router.post('/agenda/cancelar', cancelarHandler(SECRET))
 receptionRouter.post('/agenda/cancelar', cancelarHandler(RECEPTION_SECRET))
+
+function editarAgendaGetHandler(secret) {
+  return (req, res) => {
+    const id = Number(req.params.id)
+    const dataRef = req.query.data || hojeStr()
+    const ag = getDb().prepare(`
+      SELECT a.*, s.nome AS servico_nome, s.preco AS servico_preco, s.duracao_minutos
+      FROM agendamentos a
+      LEFT JOIN servicos s ON s.id = a.servico_id
+      WHERE a.id = ?
+    `).get(id)
+    if (!ag) return res.redirect(`/${secret}/agenda?data=${encodeURIComponent(dataRef)}`)
+
+    const servicos = getServicosAtivos()
+    const dataAg = String(ag.data_hora_inicio).slice(0, 10)
+    const horarioAg = isoParaHorarioInput(ag.data_hora_inicio)
+    const staffOpts = staff.map((s) =>
+      `<option value="${s.id}" ${ag.staff_id === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`,
+    ).join('')
+    const servicoOpts = servicos.map((s) =>
+      `<option value="${escapeHtml(s.id)}" ${ag.servico_id === s.id ? 'selected' : ''}>${escapeHtml(s.nome)} — R$${s.preco} (${s.duracao_minutos}min)</option>`,
+    ).join('')
+
+    const body = `
+    <a href="/${secret}/agenda?data=${encodeURIComponent(dataRef)}" class="btn btn-ghost btn-sm" style="margin-bottom:1.25rem;display:inline-flex">${ic.back} Voltar à agenda</a>
+    <div class="form-card" style="max-width:560px">
+      <div class="form-card-title">${ic.gear} Editar agendamento #${ag.id}</div>
+      <form method="POST" action="/${secret}/agenda/editar/${ag.id}">
+        <input type="hidden" name="data_ref" value="${escapeHtml(dataRef)}">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Nome do cliente *</label>
+            <input type="text" name="nome" required value="${escapeHtml(ag.cliente_nome || '')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">WhatsApp</label>
+            <input type="text" value="${escapeHtml(ag.whatsapp_number || '')}" disabled style="opacity:.7">
+            <div class="form-hint">${ic.warn} Número não editável pelo painel</div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Serviço *</label>
+            <select name="servico_id" required>${servicoOpts}</select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Barbeiro *</label>
+            <select name="staff_id" required>${staffOpts}</select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Data *</label>
+            <input type="date" name="data" value="${escapeHtml(dataAg)}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Horário *</label>
+            <input type="time" name="horario" value="${escapeHtml(horarioAg)}" required step="900">
+          </div>
+        </div>
+        <div class="form-hint" style="margin-bottom:1rem">${ic.warn} Se houver evento no Google Calendar, ele será recriado com os novos dados.</div>
+        <div style="display:flex;gap:.5rem">
+          <button type="submit" class="btn btn-primary">${ic.check} Salvar alterações</button>
+          <a href="/${secret}/agenda?data=${encodeURIComponent(dataRef)}" class="btn btn-ghost">Cancelar</a>
+        </div>
+      </form>
+    </div>`
+
+    res.send(shell('agenda', 'Editar Agendamento', `Agendamento #${ag.id}`, body, '', secret))
+  }
+}
+
+function editarAgendaPostHandler(secret) {
+  return async (req, res) => {
+    const id = Number(req.params.id)
+    const { nome, servico_id, staff_id, data, horario, data_ref } = req.body
+    const dataRedirect = data_ref || data || hojeStr()
+    if (!nome || !servico_id || !staff_id || !data || !horario) {
+      return res.redirect(`/${secret}/agenda?data=${encodeURIComponent(dataRedirect)}&msg=err`)
+    }
+
+    const ag = getDb().prepare(`SELECT * FROM agendamentos WHERE id = ?`).get(id)
+    if (!ag) return res.redirect(`/${secret}/agenda?data=${encodeURIComponent(dataRedirect)}`)
+
+    const servico = getServicosAtivos().find((s) => s.id === servico_id) || getServicoById(servico_id)
+    if (!servico) return res.redirect(`/${secret}/agenda/editar/${id}?data=${encodeURIComponent(dataRedirect)}`)
+
+    const start_iso = `${data}T${horario}:00-03:00`
+    const endDate = new Date(new Date(start_iso).getTime() + servico.duracao_minutos * 60000)
+    const end_iso = endDate.toISOString()
+
+    try {
+      if (ag.google_event_id) {
+        await deleteEvent(ag.staff_id, ag.google_event_id).catch(() => {})
+      }
+
+      let googleEventId = null
+      try {
+        const evento = await createEvent(staff_id, {
+          summary: `${servico.nome} — ${nome.trim()}`,
+          description: `WhatsApp: ${ag.whatsapp_number}\nServiço: ${servico.nome}\nBarbeiro: ${staffNameById(staff_id)}`,
+          startTime: start_iso,
+          endTime: end_iso,
+          clientePhone: ag.whatsapp_number,
+        })
+        googleEventId = evento?.id || null
+      } catch (e) {
+        log('Erro ao recriar evento Calendar na edição:', e.message)
+      }
+
+      getDb().prepare(`
+        UPDATE agendamentos
+        SET cliente_nome = ?, servico_id = ?, staff_id = ?,
+            data_hora_inicio = ?, data_hora_fim = ?,
+            updated_at = datetime('now')
+        WHERE id = ?
+      `).run(nome.trim(), servico_id, staff_id, start_iso, end_iso, id)
+
+      if (googleEventId) {
+        getDb().prepare(`UPDATE agendamentos SET google_event_id = ? WHERE id = ?`).run(googleEventId, id)
+      }
+
+      log(`Painel: agendamento #${id} editado — ${data} ${horario}`)
+      res.redirect(`/${secret}/agenda?data=${encodeURIComponent(data)}&msg=editado`)
+    } catch (e) {
+      log('Erro ao editar agendamento:', e.message)
+      res.redirect(`/${secret}/agenda?data=${encodeURIComponent(dataRedirect)}`)
+    }
+  }
+}
+
+router.get('/agenda/editar/:id', editarAgendaGetHandler(SECRET))
+router.post('/agenda/editar/:id', editarAgendaPostHandler(SECRET))
+receptionRouter.get('/agenda/editar/:id', editarAgendaGetHandler(RECEPTION_SECRET))
+receptionRouter.post('/agenda/editar/:id', editarAgendaPostHandler(RECEPTION_SECRET))
 
 receptionRouter.post('/agenda/presenca/:id', express.urlencoded({ extended: false }), (req, res) => {
   const id = Number(req.params.id)

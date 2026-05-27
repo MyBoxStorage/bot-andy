@@ -110,6 +110,12 @@ export function getUpsellParaServico(servicoId) {
 }
 
 // ── Tool: verificar_disponibilidade ──────────────────────────────
+function filtrarSlotsAntecedencia(slots) {
+  const antecedenciaMinutos = Number(getConfig('antecedencia_minima_minutos') || 30)
+  const limiteMinimo = new Date(Date.now() + antecedenciaMinutos * 60 * 1000)
+  return slots.filter((slot) => new Date(slot.start || slot.inicio) >= limiteMinimo)
+}
+
 export async function verificarDisponibilidade({ data, horario, servico_id, staff_id }) {
   // Normaliza valores que Claude pode mandar como string
   if (horario === 'null' || horario === 'undefined' || horario === '') horario = null
@@ -127,10 +133,10 @@ export async function verificarDisponibilidade({ data, horario, servico_id, staf
     // Se horário não especificado, retorna todos slots livres do dia
     if (!horario) {
       if (staff_id && staff_id !== 'qualquer') {
-        const slots = await findFreeSlots(staff_id, dateStr, servico.duracao_minutos)
+        const slots = filtrarSlotsAntecedencia(await findFreeSlots(staff_id, dateStr, servico.duracao_minutos))
         return { slots_disponiveis: slots.map(s => s.label), staff_id, data: dateStr }
       }
-      const todos = await getNextAvailableAcrossStaff(dateStr, servico.duracao_minutos)
+      const todos = filtrarSlotsAntecedencia(await getNextAvailableAcrossStaff(dateStr, servico.duracao_minutos))
       const porBarbeiro = {}
       for (const s of todos) {
         if (!porBarbeiro[s.staffId]) porBarbeiro[s.staffId] = []

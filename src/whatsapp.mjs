@@ -17,7 +17,7 @@ import { log, warn, error as logError } from './logger.mjs'
 import { detectarRespostaConfirmacao, notificarAndy } from './reminders.mjs'
 import { getAgendamentosFuturosCliente, marcarConfirmadoPeloCliente, cancelarAgendamento } from './db.mjs'
 import { deleteEvent } from './calendar.mjs'
-import { panelRouter, SECRET } from './panel.mjs'
+import { panelRouter, SECRET, registrarRotasPublicasPainel } from './panel.mjs'
 import { bookingRouter } from './booking.mjs'
 import { registerSender } from './queue.mjs'
 import { temDadoSensivel, sanitizarTexto, tentativaInjection } from './security.mjs'
@@ -111,6 +111,7 @@ export function createExpressApp() {
   app.use(express.urlencoded({ extended: true }))
   app.use(bookingRouter)
   app.use(`/${SECRET}`, panelRouter)
+  registrarRotasPublicasPainel(app)
 
   return app
 }

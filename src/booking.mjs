@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url'
 import { staff, schedule, business } from './config.mjs'
 import { findFreeSlots, getNextAvailableAcrossStaff } from './calendar.mjs'
 import { criarAgendamentoTool } from './tools.mjs'
-import { enfileirarMensagem, getServicosAtivos, getServico } from './db.mjs'
+import { enfileirarMensagem, getServicosAtivos, getServico, getConfig } from './db.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const publicDir = path.join(__dirname, '..', 'public')
@@ -91,16 +91,20 @@ bookingRouter.get('/api/disponibilidade', async (req, res) => {
     if (!servico) return res.status(400).json({ erro: 'serviço inválido' })
 
     const duracao = servico.duracao_minutos
+    const antecedenciaMinutos = Number(getConfig('antecedencia_minima_minutos') || 30)
+    const limiteMinimo = new Date(Date.now() + antecedenciaMinutos * 60 * 1000)
+    const filtrarSlots = (slots) =>
+      slots.filter((slot) => new Date(slot.start || slot.inicio) >= limiteMinimo)
 
     if (staff_id === 'qualquer') {
-      const slots = await getNextAvailableAcrossStaff(data, duracao)
+      const slots = filtrarSlots(await getNextAvailableAcrossStaff(data, duracao))
       return res.json({ slots })
     }
 
     const member = staff.find(s => s.id === staff_id)
     if (!member?.active) return res.status(400).json({ erro: 'barbeiro inválido' })
 
-    const slots = await findFreeSlots(staff_id, data, duracao)
+    const slots = filtrarSlots(await findFreeSlots(staff_id, data, duracao))
     return res.json({
       slots: slots.map(sl => ({
         ...sl,

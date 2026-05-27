@@ -21,6 +21,7 @@ import {
   getConversasAtivasCount,
   enfileirarMensagem,
   getConfig,
+  upsertCliente,
 } from './db.mjs'
 import { M } from './messages.mjs'
 import { log, error as logError } from './logger.mjs'
@@ -368,6 +369,9 @@ export async function askClaude(userMessage, whatsappNumber) {
         const result = await executeTool(block.name, block.input, whatsappNumber)
         if (block.name === 'criar_agendamento' && result?.sucesso) {
           ultimoAgendamentoCriado = result
+          if (block.input?.cliente_nome) {
+            upsertCliente(whatsappNumber, block.input.cliente_nome)
+          }
         }
         toolResults.push({
           type:        'tool_result',
