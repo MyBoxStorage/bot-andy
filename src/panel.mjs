@@ -1,4 +1,4 @@
-import { Router } from 'express'
+﻿import { Router } from 'express'
 import express from 'express'
 import bcrypt from 'bcryptjs'
 import {
@@ -17,10 +17,11 @@ import {
   criarFechamento, getFechamentosAbertos, registrarPagamentoFechamento,
   criarDespesa, getDespesas, deletarDespesa, getFechamentoDetalhe,
   confirmarPresenca, marcarNaoCompareceu,
+  moverAgendamentoKanban, getAgendamentosKanban,
 } from './db.mjs'
-import { deleteEvent, createEvent } from './calendar.mjs'
+import { deleteEvent, createEvent, findFreeSlots } from './calendar.mjs'
 import { criarAgendamentoTool } from './tools.mjs'
-import { staff } from './config.mjs'
+import { staff, schedule } from './config.mjs'
 import { log } from './logger.mjs'
 import { M } from './messages.mjs'
 
@@ -761,6 +762,7 @@ function shell(page, title, subtitle, body, script = '', secret = SECRET) {
     { id:'financeiro/despesas',     label:'Despesas',            icon:ic.box },
   ]
   const navReception = [
+    { id:'kanban',                label:'Kanban',       icon:ic.chart },
     { id:'agenda',                label:'Agenda',       icon:ic.cal },
     { id:'agenda/agendar-manual', label:'Ag. Manual',   icon:ic.plus },
     { id:'despesas',              label:'Despesas',     icon:ic.box },
@@ -2070,6 +2072,544 @@ router.get('/agenda/agendar-manual',  agendarManualGetHandler(SECRET))
 router.post('/agenda/agendar-manual', agendarManualPostHandler(SECRET))
 receptionRouter.get('/agenda/agendar-manual',  agendarManualGetHandler(RECEPTION_SECRET))
 receptionRouter.post('/agenda/agendar-manual', agendarManualPostHandler(RECEPTION_SECRET))
+
+// ── Kanban recepção ──────────────────────────────────────────────
+const KANBAN_COLS = [
+  { key: 'confirmado', label: 'Agendado' },
+  { key: 'chegou', label: 'Chegou' },
+  { key: 'em_atendimento', label: 'Em atendimento' },
+  { key: 'concluido', label: 'Concluído' },
+  { key: 'nao_compareceu', label: 'No-show' },
+  { key: 'cancelado', label: 'Cancelado' },
+]
+
+const KANBAN_CSS = `
+.kb-board{display:flex;gap:12px;padding:16px;overflow-x:auto;min-height:calc(100vh - 120px);align-items:flex-start}
+.kb-col{background:#1a1a1a;border-radius:10px;min-width:220px;width:220px;flex-shrink:0;display:flex;flex-direction:column}
+.kb-col-header{padding:12px 14px;font-size:13px;font-weight:500;display:flex;justify-content:space-between;border-bottom:1px solid #2a2a2a}
+.kb-col-body{padding:8px;display:flex;flex-direction:column;gap:8px;flex:1;min-height:80px;transition:background .15s}
+.kb-card{background:#242424;border-radius:8px;padding:12px;cursor:grab;border:1px solid #333;transition:border-color .15s}
+.kb-card:hover{border-color:#555}
+.kb-card:hover .card-actions{opacity:1}
+.card-actions{opacity:0;display:flex;gap:6px;margin-top:8px;transition:opacity .15s;flex-wrap:wrap}
+.card-hora{font-size:18px;font-weight:500;color:#fff}
+.card-nome{font-size:13px;color:#ccc;margin:2px 0}
+.card-servico{font-size:12px;color:#888}
+.card-footer{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+.badge-b1{background:#1a3a5c;color:#60a5fa;font-size:10px;padding:2px 8px;border-radius:10px}
+.badge-b2{background:#1a3a2a;color:#4ade80;font-size:10px;padding:2px 8px;border-radius:10px}
+.badge-b3{background:#3a2a1a;color:#fb923c;font-size:10px;padding:2px 8px;border-radius:10px}
+.col-drag-over .kb-col-body{background:#1e2a1e;outline:1px dashed #4ade80}
+.col-no-drop{opacity:.35;pointer-events:none}
+.timer-badge{font-size:11px;color:#fb923c;margin-left:4px}
+.refresh-tag{font-size:11px;color:#4ade80;opacity:0;transition:opacity .3s;margin-left:12px}
+.refresh-tag.on{opacity:1}
+.kb-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:1000}
+.kb-modal{background:#1a1a1a;border-radius:12px;padding:24px;width:480px;max-width:95vw;border:1px solid #333;position:relative}
+.kb-modal h3{margin:0 0 16px;font-size:16px;font-weight:500}
+.fg{margin-bottom:14px}
+.fg label{display:block;font-size:12px;color:#888;margin-bottom:4px}
+.fg input,.fg select{width:100%;padding:8px 10px;background:#242424;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px;box-sizing:border-box}
+.fg select:disabled{opacity:.4}
+.modal-error{color:#fc8181;font-size:12px;margin-top:8px;display:none}
+.modal-error.on{display:block}
+.btn-red{background:#c53030;color:#fff;border:none;padding:9px 20px;border-radius:6px;cursor:pointer;font-size:13px}
+.btn-ghost{background:transparent;color:#888;border:1px solid #333;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px}
+.kb-header{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #2a2a2a;flex-wrap:wrap;margin:-1.5rem -1.5rem 0}
+.kb-totals{display:flex;gap:16px;margin-left:auto;font-size:12px;color:#888}
+.kb-totals span b{color:#fff}
+.kb-toggle{display:flex;background:#242424;border-radius:6px;overflow:hidden}
+.kb-toggle button{padding:6px 14px;border:none;background:transparent;color:#888;cursor:pointer;font-size:12px}
+.kb-toggle button.active{background:#333;color:#fff}
+.kb-by-barber{display:none;flex-direction:column;gap:24px;padding:16px}
+.kb-barber-row{border:1px solid #2a2a2a;border-radius:10px;padding:12px}
+.kb-barber-label{font-size:13px;font-weight:500;margin-bottom:10px;color:#ccc}
+.kb-barber-cols{display:flex;gap:8px;overflow-x:auto}
+.kb-barber-cols .kb-col{min-width:160px;width:160px}
+.kb-content{margin:-1.5rem -1.5rem 0;padding:0}
+`
+
+function kanbanStatusKey(status) {
+  if (status === 'no_show') return 'nao_compareceu'
+  if (status === 'aguardando_sinal_aprovacao') return 'confirmado'
+  return status
+}
+
+function kanbanBadgeClass(staffId) {
+  if (staffId === 'barbeiro2') return 'badge-b2'
+  if (staffId === 'barbeiro3') return 'badge-b3'
+  return 'badge-b1'
+}
+
+function renderKanbanCard(ag) {
+  const colKey = kanbanStatusKey(ag.status)
+  const preco = Number(ag.servico_preco || 0)
+  const nome = escapeHtml(ag.nome_cliente || ag.cliente_nome || 'Sem nome')
+  const servico = escapeHtml(ag.servico_nome || ag.servico_id || '—')
+  const barbeiro = escapeHtml(staffNameById(ag.staff_id))
+  const hora = formatHora(ag.data_hora_inicio)
+  const timerHtml = colKey === 'em_atendimento'
+    ? `<span class="timer-badge" data-inicio="${escapeHtml(ag.data_hora_inicio)}">0min</span>`
+    : ''
+  const actions = []
+  if (colKey === 'confirmado') {
+    actions.push(`<button type="button" class="btn-ghost" data-action="chegou" data-id="${ag.id}">Chegou</button>`)
+    actions.push(`<button type="button" class="btn-ghost" data-action="noshow" data-id="${ag.id}">No-show</button>`)
+    actions.push(`<button type="button" class="btn-red" data-action="cancelar" data-id="${ag.id}" title="Cancelar">${ic.trash}</button>`)
+  } else if (colKey === 'chegou') {
+    actions.push(`<button type="button" class="btn-ghost" data-action="iniciar" data-id="${ag.id}">Iniciar</button>`)
+    actions.push(`<button type="button" class="btn-ghost" data-action="noshow" data-id="${ag.id}">No-show</button>`)
+  } else if (colKey === 'em_atendimento') {
+    actions.push(`<button type="button" class="btn-ghost" data-action="concluir" data-id="${ag.id}">Concluir</button>`)
+  }
+  return `
+  <div class="kb-card" draggable="true" data-card-id="${ag.id}" data-staff-id="${escapeHtml(ag.staff_id)}"
+       data-drag-id="${ag.id}" data-drag-status="${colKey}">
+    <div class="card-hora">${hora}${timerHtml}</div>
+    <div class="card-nome">${nome}</div>
+    <div class="card-servico">${servico}</div>
+    <div class="card-footer">
+      <span class="${kanbanBadgeClass(ag.staff_id)}">${barbeiro}</span>
+      <span style="font-size:12px;color:#aaa">R$ ${preco.toFixed(2)}</span>
+    </div>
+    ${actions.length ? `<div class="card-actions">${actions.join('')}</div>` : ''}
+  </div>`
+}
+
+function renderKanbanColumn(col, ags) {
+  const cards = ags
+    .filter((a) => kanbanStatusKey(a.status) === col.key)
+    .map((a) => renderKanbanCard(a))
+    .join('')
+  const count = ags.filter((a) => kanbanStatusKey(a.status) === col.key).length
+  return `
+  <div class="kb-col" data-col="${col.key}">
+    <div class="kb-col-header"><span>${col.label}</span><span class="kb-count">(${count})</span></div>
+    <div class="kb-col-body">${cards}</div>
+  </div>`
+}
+
+function calcularTotaisKanban(ags) {
+  const ativos = ags.filter((a) => !['cancelado', 'nao_compareceu', 'no_show'].includes(a.status))
+  const concluidos = ags.filter((a) => a.status === 'concluido')
+  const totalValor = concluidos.reduce((s, a) => s + Number(a.servico_preco || 0), 0)
+  return {
+    totalAtivos: ativos.length,
+    totalValor,
+    qtdConcluidos: concluidos.length,
+  }
+}
+
+receptionRouter.get('/kanban', (req, res) => {
+  const data = req.query.data || hojeStr()
+  const ags = getAgendamentosKanban(data)
+  const servicos = getServicosAtivos()
+  const totais = calcularTotaisKanban(ags)
+  const dataTitulo = new Date(`${data}T12:00:00-03:00`).toLocaleDateString('pt-BR', {
+    weekday: 'long', day: '2-digit', month: 'long', timeZone: 'America/Sao_Paulo',
+  })
+  const tituloDia = data === hojeStr() ? `Hoje — ${dataTitulo}` : dataTitulo
+  const staffOpts = staff.filter((s) => s.active).map((s) =>
+    `<option value="${s.id}">${escapeHtml(s.name)}</option>`,
+  ).join('')
+  const servicoOpts = servicos.map((s) =>
+    `<option value="${escapeHtml(s.id)}">${escapeHtml(s.nome)} — R$${s.preco}</option>`,
+  ).join('')
+  const colsHtml = KANBAN_COLS.map((c) => renderKanbanColumn(c, ags)).join('')
+  const barberRowsHtml = staff.filter((s) => s.active).map((s) => {
+    const staffAgs = ags.filter((a) => a.staff_id === s.id)
+    const cols = KANBAN_COLS.map((c) => renderKanbanColumn(c, staffAgs)).join('')
+    return `
+    <div class="kb-barber-row" data-staff="${escapeHtml(s.id)}">
+      <div class="kb-barber-label">${escapeHtml(s.name)}</div>
+      <div class="kb-barber-cols kb-board">${cols}</div>
+    </div>`
+  }).join('')
+
+  const body = `
+  <style>${KANBAN_CSS}</style>
+  <div class="kb-content">
+    <div class="kb-header">
+      <h2 style="font-size:16px;font-weight:500;margin:0">${escapeHtml(tituloDia)}</h2>
+      <input type="date" id="kbData" value="${escapeHtml(data)}">
+      <button type="button" class="btn btn-primary btn-sm" id="btnNovoAg">${ic.plus} Novo agendamento</button>
+      <div class="kb-toggle">
+        <button type="button" id="toggleTodos" class="active">Todos os barbeiros</button>
+        <button type="button" id="toggleBarbeiro">Por barbeiro</button>
+      </div>
+      <span class="refresh-tag" id="refreshTag">Atualizado</span>
+      <div class="kb-totals">
+        <span><b>${totais.totalAtivos}</b> agendamentos</span>
+        <span>R$ <b>${totais.totalValor.toFixed(2)}</b></span>
+        <span><b>${totais.qtdConcluidos}</b> concluídos</span>
+      </div>
+    </div>
+    <div id="kbBoard" class="kb-board" data-mode="todos">${colsHtml}</div>
+    <div id="kbByBarber" class="kb-by-barber">${barberRowsHtml}</div>
+  </div>
+  <div class="kb-overlay" id="kbOverlay">
+    <div class="kb-modal" onclick="event.stopPropagation()">
+      <button type="button" id="kbModalClose" class="btn-ghost" style="position:absolute;top:12px;right:12px;padding:4px 10px">✕</button>
+      <h3>Novo agendamento</h3>
+      <div class="fg"><label>Nome do cliente *</label><input type="text" id="mNome" required></div>
+      <div class="fg"><label>WhatsApp</label><input type="tel" id="mWhats" placeholder="55XXXXXXXXXXX"></div>
+      <div class="fg"><label>Serviço *</label><select id="mServico" required><option value="">Selecione...</option>${servicoOpts}</select></div>
+      <div class="fg"><label>Barbeiro *</label><select id="mStaff" required><option value="">Selecione...</option>${staffOpts}</select></div>
+      <div class="fg"><label>Data *</label><input type="date" id="mData" value="${escapeHtml(data)}" required></div>
+      <div class="fg"><label>Horário *</label><select id="mHorario" disabled><option value="">Selecione barbeiro, data e serviço</option></select></div>
+      <div class="modal-error" id="modalErr"></div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button type="button" class="btn-red" id="btnAgendar">Agendar</button>
+        <button type="button" class="btn-ghost" id="btnModalCancel">Cancelar</button>
+      </div>
+    </div>
+  </div>`
+
+  const script = `
+  const KB_SECRET = ${JSON.stringify(RECEPTION_SECRET)};
+  const KB_STAFF_NAMES = ${JSON.stringify(Object.fromEntries(staff.filter(s => s.active).map(s => [s.id, s.name])))};
+  const MOVIMENTOS = {
+    confirmado: ['chegou','nao_compareceu','cancelado'],
+    chegou: ['em_atendimento','nao_compareceu','cancelado'],
+    em_atendimento: ['concluido'],
+    concluido: [], nao_compareceu: [], cancelado: []
+  };
+  function kbStatusKey(s) {
+    if (s === 'no_show') return 'nao_compareceu';
+    if (s === 'aguardando_sinal_aprovacao') return 'confirmado';
+    return s;
+  }
+  function kbBadgeClass(id) {
+    if (id === 'barbeiro2') return 'badge-b2';
+    if (id === 'barbeiro3') return 'badge-b3';
+    return 'badge-b1';
+  }
+  function formatHoraJs(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit', timeZone:'America/Sao_Paulo' });
+  }
+  function cardHtml(ag) {
+    const colKey = kbStatusKey(ag.status);
+    const preco = Number(ag.servico_preco || 0);
+    const nome = (ag.nome_cliente || ag.cliente_nome || 'Sem nome').replace(/</g,'&lt;');
+    const servico = (ag.servico_nome || ag.servico_id || '—').replace(/</g,'&lt;');
+    const barbeiro = (KB_STAFF_NAMES[ag.staff_id] || ag.staff_id).replace(/</g,'&lt;');
+    const hora = formatHoraJs(ag.data_hora_inicio);
+    const timer = colKey === 'em_atendimento'
+      ? '<span class="timer-badge" data-inicio="'+ag.data_hora_inicio+'">0min</span>' : '';
+    let actions = '';
+    if (colKey === 'confirmado') {
+      actions = '<div class="card-actions"><button type="button" class="btn-ghost" data-action="chegou" data-id="'+ag.id+'">Chegou</button><button type="button" class="btn-ghost" data-action="noshow" data-id="'+ag.id+'">No-show</button><button type="button" class="btn-red" data-action="cancelar" data-id="'+ag.id+'">🗑</button></div>';
+    } else if (colKey === 'chegou') {
+      actions = '<div class="card-actions"><button type="button" class="btn-ghost" data-action="iniciar" data-id="'+ag.id+'">Iniciar</button><button type="button" class="btn-ghost" data-action="noshow" data-id="'+ag.id+'">No-show</button></div>';
+    } else if (colKey === 'em_atendimento') {
+      actions = '<div class="card-actions"><button type="button" class="btn-ghost" data-action="concluir" data-id="'+ag.id+'">Concluir</button></div>';
+    }
+    return '<div class="kb-card" draggable="true" data-card-id="'+ag.id+'" data-staff-id="'+ag.staff_id+'" data-drag-id="'+ag.id+'" data-drag-status="'+colKey+'"><div class="card-hora">'+hora+timer+'</div><div class="card-nome">'+nome+'</div><div class="card-servico">'+servico+'</div><div class="card-footer"><span class="'+kbBadgeClass(ag.staff_id)+'">'+barbeiro+'</span><span style="font-size:12px;color:#aaa">R$ '+preco.toFixed(2)+'</span></div>'+actions+'</div>';
+  }
+  function isByBarber() {
+    return document.getElementById('kbByBarber').style.display !== 'none';
+  }
+  function colBodyFor(status, staffId) {
+    if (isByBarber() && staffId) {
+      const row = document.querySelector('#kbByBarber .kb-barber-row[data-staff="'+staffId+'"]');
+      return row && row.querySelector('[data-col="'+status+'"] .kb-col-body');
+    }
+    const board = document.getElementById('kbBoard');
+    return board && board.querySelector('[data-col="'+status+'"] .kb-col-body');
+  }
+  function atualizarContadores() {
+    const roots = isByBarber()
+      ? document.querySelectorAll('#kbByBarber .kb-barber-row')
+      : [document.getElementById('kbBoard')];
+    roots.forEach(root => {
+      if (!root) return;
+      root.querySelectorAll('.kb-col').forEach(col => {
+        const n = col.querySelectorAll('.kb-card').length;
+        const el = col.querySelector('.kb-count');
+        if (el) el.textContent = '('+n+')';
+      });
+    });
+  }
+  let dragStatus = null;
+  let dragStaff = null;
+  document.addEventListener('dragstart', e => {
+    const card = e.target.closest('.kb-card');
+    if (!card) return;
+    dragStatus = card.dataset.dragStatus;
+    dragStaff = card.dataset.staffId;
+    e.dataTransfer.setData('text/plain', card.dataset.dragId);
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  document.addEventListener('dragend', () => {
+    dragStatus = null;
+    dragStaff = null;
+    document.querySelectorAll('.col-drag-over,.col-no-drop').forEach(el => {
+      el.classList.remove('col-drag-over','col-no-drop');
+    });
+  });
+  function colunasVisiveis() {
+    if (isByBarber() && dragStaff) {
+      const row = document.querySelector('#kbByBarber .kb-barber-row[data-staff="'+dragStaff+'"]');
+      return row ? row.querySelectorAll('.kb-col') : [];
+    }
+    return document.querySelectorAll('#kbBoard .kb-col');
+  }
+  document.addEventListener('dragover', e => {
+    const col = e.target.closest('.kb-col');
+    if (!col || !dragStatus) return;
+    if (isByBarber()) {
+      const rowStaff = col.closest('.kb-barber-row')?.dataset.staff;
+      if (rowStaff && dragStaff && rowStaff !== dragStaff) return;
+    }
+    const dest = col.dataset.col;
+    const allowed = (MOVIMENTOS[dragStatus] || []).includes(dest);
+    colunasVisiveis().forEach(c => {
+      c.classList.remove('col-drag-over','col-no-drop');
+      const d = c.dataset.col;
+      const ok = (MOVIMENTOS[dragStatus] || []).includes(d);
+      if (ok) c.classList.add('col-drag-over');
+      else c.classList.add('col-no-drop');
+    });
+    if (allowed) e.preventDefault();
+  });
+  document.addEventListener('dragleave', e => {
+    const col = e.target.closest('.kb-col');
+    if (!col) return;
+    if (!col.contains(e.relatedTarget)) {
+      col.classList.remove('col-drag-over');
+    }
+  });
+  document.addEventListener('drop', async e => {
+    const col = e.target.closest('.kb-col');
+    if (!col || !dragStatus) return;
+    e.preventDefault();
+    const dest = col.dataset.col;
+    if (!(MOVIMENTOS[dragStatus] || []).includes(dest)) return;
+    const id = e.dataTransfer.getData('text/plain');
+    const card = document.querySelector('[data-card-id="'+id+'"]');
+    const r = await fetch('/'+KB_SECRET+'/kanban/mover', {
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:'id='+encodeURIComponent(id)+'&novo_status='+encodeURIComponent(dest)
+    });
+    const data = await r.json();
+    if (data.ok && card) {
+      const body = colBodyFor(dest, card.dataset.staffId);
+      if (body) {
+        body.appendChild(card);
+        card.dataset.dragStatus = dest;
+        atualizarContadores();
+        atualizarTimers();
+      }
+    }
+    document.querySelectorAll('.col-drag-over,.col-no-drop').forEach(el => {
+      el.classList.remove('col-drag-over','col-no-drop');
+    });
+  });
+  document.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const { action, id } = btn.dataset;
+    const statusMap = { chegou:'chegou', iniciar:'em_atendimento', concluir:'concluido', noshow:'nao_compareceu', cancelar:'cancelado' };
+    const novoStatus = statusMap[action];
+    if (!novoStatus) return;
+    const r = await fetch('/'+KB_SECRET+'/kanban/mover', {
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:'id='+encodeURIComponent(id)+'&novo_status='+encodeURIComponent(novoStatus)
+    });
+    const data = await r.json();
+    if (data.ok) {
+      const card = document.querySelector('[data-card-id="'+id+'"]');
+      const body = colBodyFor(novoStatus, card?.dataset.staffId);
+      if (card && body) {
+        body.appendChild(card);
+        card.dataset.dragStatus = novoStatus;
+        atualizarContadores();
+        atualizarTimers();
+      }
+    }
+  });
+  function atualizarTimers() {
+    document.querySelectorAll('[data-inicio]').forEach(el => {
+      const mins = Math.floor((Date.now() - new Date(el.dataset.inicio)) / 60000);
+      el.textContent = mins + 'min';
+    });
+  }
+  atualizarTimers();
+  setInterval(atualizarTimers, 60000);
+  const dataAtual = () => document.getElementById('kbData').value;
+  document.getElementById('kbData').addEventListener('change', () => {
+    window.location.href = '/'+KB_SECRET+'/kanban?data=' + dataAtual();
+  });
+  setInterval(async () => {
+    try {
+      const r = await fetch('/'+KB_SECRET+'/kanban/dados?data=' + dataAtual());
+      const { agendamentos } = await r.json();
+      const ids = new Set(agendamentos.map(a => String(a.id)));
+      document.querySelectorAll('.kb-card').forEach(card => {
+        if (!ids.has(card.dataset.cardId)) card.remove();
+      });
+      agendamentos.forEach(ag => {
+        const id = String(ag.id);
+        let card = document.querySelector('[data-card-id="'+id+'"]');
+        const colKey = kbStatusKey(ag.status);
+        const target = colBodyFor(colKey, ag.staff_id);
+        if (!target) return;
+        if (!card) {
+          target.insertAdjacentHTML('beforeend', cardHtml(ag));
+        } else if (card.dataset.dragStatus !== colKey) {
+          card.remove();
+          target.insertAdjacentHTML('beforeend', cardHtml(ag));
+        }
+      });
+      atualizarContadores();
+      atualizarTimers();
+      const tag = document.getElementById('refreshTag');
+      tag.classList.add('on');
+      setTimeout(() => tag.classList.remove('on'), 2000);
+    } catch (err) {}
+  }, 30000);
+  document.getElementById('toggleTodos').addEventListener('click', () => {
+    document.getElementById('kbBoard').style.display = 'flex';
+    document.getElementById('kbByBarber').style.display = 'none';
+    document.getElementById('toggleTodos').classList.add('active');
+    document.getElementById('toggleBarbeiro').classList.remove('active');
+  });
+  document.getElementById('toggleBarbeiro').addEventListener('click', () => {
+    document.getElementById('kbBoard').style.display = 'none';
+    document.getElementById('kbByBarber').style.display = 'flex';
+    document.getElementById('toggleBarbeiro').classList.add('active');
+    document.getElementById('toggleTodos').classList.remove('active');
+  });
+  document.getElementById('btnNovoAg').addEventListener('click', () => {
+    document.getElementById('kbOverlay').style.display = 'flex';
+  });
+  const closeModal = () => { document.getElementById('kbOverlay').style.display = 'none'; };
+  document.getElementById('kbOverlay').addEventListener('click', e => {
+    if (e.target.id === 'kbOverlay') closeModal();
+  });
+  document.getElementById('kbModalClose').addEventListener('click', closeModal);
+  document.getElementById('btnModalCancel').addEventListener('click', closeModal);
+  async function carregarSlots() {
+    const staffId = document.getElementById('mStaff').value;
+    const data = document.getElementById('mData').value;
+    const servicoId = document.getElementById('mServico').value;
+    if (!staffId || !data || !servicoId) return;
+    const sel = document.getElementById('mHorario');
+    sel.disabled = true;
+    sel.innerHTML = '<option>Carregando...</option>';
+    const r = await fetch('/'+KB_SECRET+'/kanban/slots?staff_id='+encodeURIComponent(staffId)+'&data='+encodeURIComponent(data)+'&servico_id='+encodeURIComponent(servicoId));
+    const { slots } = await r.json();
+    if (!slots.length) {
+      sel.innerHTML = '<option value="">Sem horários disponíveis</option>';
+    } else {
+      sel.innerHTML = '<option value="">Selecione...</option>' + slots.map(s => '<option value="'+s+'">'+s+'</option>').join('');
+      sel.disabled = false;
+    }
+  }
+  ['mStaff','mData','mServico'].forEach(id => document.getElementById(id).addEventListener('change', carregarSlots));
+  document.getElementById('btnAgendar').addEventListener('click', async () => {
+    const err = document.getElementById('modalErr');
+    err.className = 'modal-error';
+    const body = new URLSearchParams({
+      nome: document.getElementById('mNome').value.trim(),
+      whatsapp: document.getElementById('mWhats').value.trim(),
+      servico_id: document.getElementById('mServico').value,
+      staff_id: document.getElementById('mStaff').value,
+      data: document.getElementById('mData').value,
+      horario: document.getElementById('mHorario').value,
+    });
+    const r = await fetch('/'+KB_SECRET+'/kanban/agendar', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
+    const res = await r.json();
+    if (res.erro) {
+      err.textContent = res.erro;
+      err.className = 'modal-error on';
+      return;
+    }
+    closeModal();
+    location.reload();
+  });`
+
+  res.send(shell('kanban', 'Kanban', dataTitulo, body, script, RECEPTION_SECRET))
+})
+
+receptionRouter.get('/kanban/dados', (req, res) => {
+  const data = req.query.data || hojeStr()
+  res.json({ agendamentos: getAgendamentosKanban(data), timestamp: Date.now() })
+})
+
+receptionRouter.post('/kanban/mover', express.urlencoded({ extended: false }), async (req, res) => {
+  const { id, novo_status } = req.body
+  const permitidos = ['chegou', 'em_atendimento', 'concluido', 'nao_compareceu', 'cancelado']
+  if (!id || !permitidos.includes(novo_status)) {
+    return res.status(400).json({ erro: 'Parâmetros inválidos' })
+  }
+  try {
+    const ag = getAgendamento(Number(id))
+    if (!ag) return res.status(400).json({ erro: 'Agendamento não encontrado' })
+    moverAgendamentoKanban(Number(id), novo_status)
+    if (novo_status === 'cancelado' && ag.google_event_id) {
+      await deleteEvent(ag.staff_id, ag.google_event_id).catch(() => {})
+    }
+    return res.json({ ok: true })
+  } catch (e) {
+    return res.status(400).json({ erro: e.message || 'Erro ao mover' })
+  }
+})
+
+receptionRouter.get('/kanban/slots', async (req, res) => {
+  try {
+    const { staff_id, data, servico_id } = req.query
+    if (!staff_id || !data || !servico_id) {
+      return res.status(400).json({ erro: 'parâmetros faltando', slots: [] })
+    }
+    const dow = new Date(`${data}T12:00:00-03:00`).getDay()
+    if (!schedule.openDays.includes(dow)) {
+      return res.json({ slots: [] })
+    }
+    const servico = getServicoById(servico_id)
+    if (!servico) return res.status(400).json({ erro: 'serviço inválido', slots: [] })
+    const member = staff.find((s) => s.id === staff_id)
+    if (!member?.active) return res.status(400).json({ erro: 'barbeiro inválido', slots: [] })
+    const antecedenciaMinutos = Number(getConfig('antecedencia_minima_minutos') || 30)
+    const limiteMinimo = new Date(Date.now() + antecedenciaMinutos * 60 * 1000)
+    const raw = await findFreeSlots(staff_id, data, servico.duracao_minutos)
+    const slots = raw
+      .filter((slot) => new Date(slot.start) >= limiteMinimo)
+      .map((slot) => slot.label || formatHora(slot.start))
+    return res.json({ slots })
+  } catch (e) {
+    return res.status(500).json({ erro: e.message, slots: [] })
+  }
+})
+
+receptionRouter.post('/kanban/agendar', express.urlencoded({ extended: false }), async (req, res) => {
+  const { nome, whatsapp, servico_id, staff_id, data, horario } = req.body
+  if (!nome || !whatsapp || !servico_id || !staff_id || !data || !horario) {
+    return res.status(400).json({ erro: 'Preencha todos os campos obrigatórios.' })
+  }
+  try {
+    const numeroLimpo = String(whatsapp).replace(/\D/g, '')
+    const wppNumber = numeroLimpo.startsWith('55') ? `${numeroLimpo}@c.us` : `55${numeroLimpo}@c.us`
+    const start_iso = `${data}T${horario}:00-03:00`
+    const resultado = await criarAgendamentoTool({
+      whatsapp_number: wppNumber,
+      cliente_nome: nome.trim(),
+      staff_id,
+      servico_id,
+      start_iso,
+    })
+    if (!resultado?.sucesso) {
+      return res.status(400).json({ erro: resultado?.erro || resultado?.mensagem || 'Erro ao agendar' })
+    }
+    const ag = getAgendamento(resultado.agendamento_id)
+    return res.json({ ok: true, agendamento: ag || resultado })
+  } catch (e) {
+    return res.status(400).json({ erro: e.message || 'Erro ao agendar' })
+  }
+})
 
 // ═══════════════════════════════════════════════════════════════
 // ROTA: /faturamento
@@ -3416,7 +3956,7 @@ router.get('/eventos-bot', (req, res) => {
 
 // Redirects raiz
 router.get('/', (req, res) => res.redirect(`/${SECRET}/agenda`))
-receptionRouter.get('/', (req, res) => res.redirect(`/${RECEPTION_SECRET}/agenda`))
+receptionRouter.get('/', (req, res) => res.redirect(`/${RECEPTION_SECRET}/kanban`))
 
 // ═══════════════════════════════════════════════════════════════
 //  PAINEL DO BARBEIRO (/barbeiro/*)

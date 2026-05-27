@@ -847,6 +847,29 @@ export function getAgendamentosDia(data, staffId = null) {
   return getDb().prepare(query).all(...params)
 }
 
+/** Kanban recepção: altera status operacional do agendamento. */
+export function moverAgendamentoKanban(id, novoStatus) {
+  return getDb()
+    .prepare(`UPDATE agendamentos SET status=?, updated_at=datetime('now') WHERE id=?`)
+    .run(novoStatus, id)
+}
+
+/** Kanban recepção: agendamentos do dia com dados do serviço. */
+export function getAgendamentosKanban(data) {
+  return getDb()
+    .prepare(`
+      SELECT a.*, s.nome AS servico_nome, s.preco AS servico_preco,
+             s.duracao_minutos,
+             COALESCE(a.cliente_nome, c.nome) AS nome_cliente
+      FROM agendamentos a
+      LEFT JOIN servicos s ON a.servico_id = s.id
+      LEFT JOIN clientes c ON c.whatsapp_number = a.whatsapp_number
+      WHERE date(a.data_hora_inicio, '+3 hours') = date(?)
+      ORDER BY a.data_hora_inicio ASC
+    `)
+    .all(data)
+}
+
 export function getHistoricoCliente(whatsappNumber) {
   return getDb()
     .prepare(`
