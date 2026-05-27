@@ -5,6 +5,7 @@ import path     from 'path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'url'
 import { log } from './logger.mjs'
+import { nowIsoBRT, nowIsoBRTOffsetMinutes } from './time.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR  = path.join(__dirname, '..', 'data')
@@ -523,15 +524,16 @@ export function getAgendamentoByGoogleId(googleEventId) {
 }
 
 export function getAgendamentosFuturosCliente(whatsappNumber) {
+  const agora = nowIsoBRT() // TZ-FIX: comparação em BRT, não UTC do SQLite
   return getDb()
     .prepare(`
       SELECT * FROM agendamentos
       WHERE whatsapp_number = ?
         AND status = 'confirmado'
-        AND data_hora_inicio > datetime('now')
+        AND data_hora_inicio > ?
       ORDER BY data_hora_inicio ASC
     `)
-    .all(whatsappNumber)
+    .all(whatsappNumber, agora)
 }
 
 export function cancelarAgendamento(id, motivo = 'manual') {
@@ -584,6 +586,7 @@ export function marcarUpsellPosServico(id) {
 
 // Agendamentos que precisam de lembrete (entre 2h e 2h30 do início, ainda não enviado)
 export function getAgendamentosParaLembrete() {
+  const agora = nowIsoBRT() // TZ-FIX: janela do lembrete 2h antes em BRT
   return getDb()
     .prepare(`
       SELECT a.*, c.nome as nome_cliente
@@ -591,14 +594,15 @@ export function getAgendamentosParaLembrete() {
       LEFT JOIN clientes c ON c.whatsapp_number = a.whatsapp_number
       WHERE a.status = 'confirmado'
         AND a.lembrete_2h_enviado_at IS NULL
-        AND datetime(a.data_hora_inicio, '-2 hours', '+30 minutes') >= datetime('now')
-        AND datetime(a.data_hora_inicio, '-2 hours') <= datetime('now')
+        AND datetime(a.data_hora_inicio, '-2 hours', '+30 minutes') >= ?
+        AND datetime(a.data_hora_inicio, '-2 hours') <= ?
     `)
-    .all()
+    .all(agora, agora)
 }
 
 // Agendamentos sem confirmação que devem ser cancelados (início em menos de 1h)
 export function getAgendamentosParaCancelarAutomatico() {
+  const agora = nowIsoBRT() // TZ-FIX: cancelamento automático 1h antes em BRT
   return getDb()
     .prepare(`
       SELECT a.*, c.nome as nome_cliente
@@ -607,14 +611,16 @@ export function getAgendamentosParaCancelarAutomatico() {
       WHERE a.status = 'confirmado'
         AND a.lembrete_2h_enviado_at IS NOT NULL
         AND a.confirmado_pelo_cliente_at IS NULL
-        AND datetime(a.data_hora_inicio, '-1 hour') <= datetime('now')
-        AND a.data_hora_inicio > datetime('now')
+        AND datetime(a.data_hora_inicio, '-1 hour') <= ?
+        AND a.data_hora_inicio > ?
     `)
-    .all()
+    .all(agora, agora)
 }
 
 // Agendamentos que terminaram e o upsell pós-serviço ainda não foi enviado
 export function getAgendamentosParaUpsellPosServico() {
+  const agora = nowIsoBRT() // TZ-FIX: upsell nos 30 min após o fim em BRT
+  const ha30min = nowIsoBRTOffsetMinutes(-30)
   return getDb()
     .prepare(`
       SELECT a.*, c.nome as nome_cliente
@@ -622,10 +628,10 @@ export function getAgendamentosParaUpsellPosServico() {
       LEFT JOIN clientes c ON c.whatsapp_number = a.whatsapp_number
       WHERE a.status = 'confirmado'
         AND a.upsell_pos_servico_enviado = 0
-        AND a.data_hora_fim <= datetime('now')
-        AND a.data_hora_fim >= datetime('now', '-30 minutes')
+        AND a.data_hora_fim <= ?
+        AND a.data_hora_fim >= ?
     `)
-    .all()
+    .all(agora, ha30min)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -703,9 +709,9 @@ export function expirarFilaPassada() {
   getDb()
     .prepare(`
       UPDATE fila_espera SET expirado = 1
-      WHERE data_hora_alvo < datetime('now') AND expirado = 0
+      WHERE data_hora_alvo < ? AND expirado = 0
     `)
-    .run()
+    .run(nowIsoBRT()) // TZ-FIX: comparar com agora em BRT
 }
 
 export function removerClienteFila(whatsappNumber) {
@@ -864,7 +870,7 @@ export function getAgendamentosKanban(data) {
       FROM agendamentos a
       LEFT JOIN servicos s ON a.servico_id = s.id
       LEFT JOIN clientes c ON c.whatsapp_number = a.whatsapp_number
-      WHERE date(a.data_hora_inicio, '+3 hours') = date(?)
+      WHERE date(a.data_hora_inicio) = date(?) -- TZ-FIX: offset já está em data_hora_inicio
       ORDER BY a.data_hora_inicio ASC
     `)
     .all(data)
@@ -1282,26 +1288,27 @@ export function getAgendamentosAguardandoSinal() {
 //  REATIVAÇÃO
 // ═══════════════════════════════════════════════════
 export function getClientesParaReativar(diasMin = 35, intervaloReativacao = 60) {
+  const agora = nowIsoBRT() // TZ-FIX: última visita / agendamento futuro em BRT
   return getDb().prepare(`
     SELECT c.* FROM clientes c
     WHERE c.bloqueado = 0
       AND c.no_show_count < 2
       AND (c.ultima_reativacao_at IS NULL
-           OR datetime(c.ultima_reativacao_at, '+${intervaloReativacao} days') <= datetime('now'))
+           OR datetime(c.ultima_reativacao_at, '+${intervaloReativacao} days') <= ?)
       AND EXISTS (
         SELECT 1 FROM agendamentos a
         WHERE a.whatsapp_number = c.whatsapp_number
           AND a.status IN ('concluido', 'confirmado')
-          AND datetime(a.data_hora_inicio, '+${diasMin} days') <= datetime('now')
+          AND datetime(a.data_hora_inicio, '+${diasMin} days') <= ?
       )
       AND NOT EXISTS (
         SELECT 1 FROM agendamentos a2
         WHERE a2.whatsapp_number = c.whatsapp_number
           AND a2.status = 'confirmado'
-          AND a2.data_hora_inicio > datetime('now')
+          AND a2.data_hora_inicio > ?
       )
     LIMIT 20
-  `).all()
+  `).all(agora, agora, agora)
 }
 
 export function marcarReativacaoEnviada(whatsappNumber) {
@@ -1314,14 +1321,15 @@ export function marcarReativacaoEnviada(whatsappNumber) {
 //  FEEDBACK PÓS-SERVIÇO
 // ═══════════════════════════════════════════════════
 export function getAgendamentosParaFeedback() {
+  const agora = nowIsoBRT() // TZ-FIX: feedback 4–5h após o fim em BRT
   return getDb().prepare(`
     SELECT a.*, c.nome as nome_cliente FROM agendamentos a
     LEFT JOIN clientes c ON c.whatsapp_number = a.whatsapp_number
     WHERE a.status IN ('confirmado', 'concluido')
       AND a.feedback_enviado_at IS NULL
-      AND datetime(a.data_hora_fim, '+4 hours') <= datetime('now')
-      AND datetime(a.data_hora_fim, '+5 hours') >= datetime('now')
-  `).all()
+      AND datetime(a.data_hora_fim, '+4 hours') <= ?
+      AND datetime(a.data_hora_fim, '+5 hours') >= ?
+  `).all(agora, agora)
 }
 
 export function marcarFeedbackEnviado(agendamentoId) {
@@ -1629,6 +1637,7 @@ export function calcularComissaoPeriodo(barbeiroId, dataInicio, dataFim) {
 
 /** Agendamentos confirmados sem presença/no-show, com fim há pelo menos 60 min (hora local). */
 export function getAgendamentosParaConcluir() {
+  const limite = nowIsoBRTOffsetMinutes(-60) // TZ-FIX: fim há ≥60 min em BRT
   return getDb()
     .prepare(`
       SELECT id, staff_id, servico_id, data_hora_fim, whatsapp_number
@@ -1636,9 +1645,9 @@ export function getAgendamentosParaConcluir() {
       WHERE status = 'confirmado'
         AND presenca_confirmada_at IS NULL
         AND no_show_marcado_at IS NULL
-        AND datetime(data_hora_fim) <= datetime('now', '-60 minutes')
+        AND data_hora_fim <= ?
     `)
-    .all()
+    .all(limite)
 }
 
 /** Marca como concluído pelo cron; só altera se ainda estiver confirmado. Retorna true se atualizou uma linha. */

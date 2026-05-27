@@ -181,7 +181,7 @@ function gerarSlotsFantasmaAgendaHoje(data, ags) {
 }
 
 function hojeStr() {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }) // TZ-FIX: hoje em BRT
 }
 
 /** Categorias sugeridas para despesas (schema aceita texto livre). */
@@ -2084,49 +2084,107 @@ const KANBAN_COLS = [
 ]
 
 const KANBAN_CSS = `
-.kb-board{display:flex;gap:12px;padding:16px;overflow-x:auto;min-height:calc(100vh - 120px);align-items:flex-start}
-.kb-col{background:#1a1a1a;border-radius:10px;min-width:220px;width:220px;flex-shrink:0;display:flex;flex-direction:column}
-.kb-col-header{padding:12px 14px;font-size:13px;font-weight:500;display:flex;justify-content:space-between;border-bottom:1px solid #2a2a2a}
-.kb-col-body{padding:8px;display:flex;flex-direction:column;gap:8px;flex:1;min-height:80px;transition:background .15s}
-.kb-card{background:#242424;border-radius:8px;padding:12px;cursor:grab;border:1px solid #333;transition:border-color .15s}
-.kb-card:hover{border-color:#555}
-.kb-card:hover .card-actions{opacity:1}
-.card-actions{opacity:0;display:flex;gap:6px;margin-top:8px;transition:opacity .15s;flex-wrap:wrap}
-.card-hora{font-size:18px;font-weight:500;color:#fff}
-.card-nome{font-size:13px;color:#ccc;margin:2px 0}
-.card-servico{font-size:12px;color:#888}
-.card-footer{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
-.badge-b1{background:#1a3a5c;color:#60a5fa;font-size:10px;padding:2px 8px;border-radius:10px}
-.badge-b2{background:#1a3a2a;color:#4ade80;font-size:10px;padding:2px 8px;border-radius:10px}
-.badge-b3{background:#3a2a1a;color:#fb923c;font-size:10px;padding:2px 8px;border-radius:10px}
-.col-drag-over .kb-col-body{background:#1e2a1e;outline:1px dashed #4ade80}
-.col-no-drop{opacity:.35;pointer-events:none}
-.timer-badge{font-size:11px;color:#fb923c;margin-left:4px}
-.refresh-tag{font-size:11px;color:#4ade80;opacity:0;transition:opacity .3s;margin-left:12px}
-.refresh-tag.on{opacity:1}
-.kb-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:1000}
-.kb-modal{background:#1a1a1a;border-radius:12px;padding:24px;width:480px;max-width:95vw;border:1px solid #333;position:relative}
-.kb-modal h3{margin:0 0 16px;font-size:16px;font-weight:500}
-.fg{margin-bottom:14px}
-.fg label{display:block;font-size:12px;color:#888;margin-bottom:4px}
-.fg input,.fg select{width:100%;padding:8px 10px;background:#242424;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px;box-sizing:border-box}
-.fg select:disabled{opacity:.4}
-.modal-error{color:#fc8181;font-size:12px;margin-top:8px;display:none}
-.modal-error.on{display:block}
-.btn-red{background:#c53030;color:#fff;border:none;padding:9px 20px;border-radius:6px;cursor:pointer;font-size:13px}
-.btn-ghost{background:transparent;color:#888;border:1px solid #333;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px}
-.kb-header{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #2a2a2a;flex-wrap:wrap;margin:-1.5rem -1.5rem 0}
-.kb-totals{display:flex;gap:16px;margin-left:auto;font-size:12px;color:#888}
-.kb-totals span b{color:#fff}
-.kb-toggle{display:flex;background:#242424;border-radius:6px;overflow:hidden}
-.kb-toggle button{padding:6px 14px;border:none;background:transparent;color:#888;cursor:pointer;font-size:12px}
-.kb-toggle button.active{background:#333;color:#fff}
-.kb-by-barber{display:none;flex-direction:column;gap:24px;padding:16px}
-.kb-barber-row{border:1px solid #2a2a2a;border-radius:10px;padding:12px}
-.kb-barber-label{font-size:13px;font-weight:500;margin-bottom:10px;color:#ccc}
-.kb-barber-cols{display:flex;gap:8px;overflow-x:auto}
-.kb-barber-cols .kb-col{min-width:160px;width:160px}
+/* ── Layout geral ── */
 .kb-content{margin:-1.5rem -1.5rem 0;padding:0}
+.kb-header{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid #2a2a2a;flex-wrap:wrap;background:#141414;margin:-1.5rem -1.5rem 0}
+.kb-header h2{font-size:14px;font-weight:500;margin:0;color:#ccc;white-space:nowrap}
+.kb-header input[type=date]{padding:5px 8px;background:#242424;border:1px solid #333;border-radius:6px;color:#fff;font-size:12px;width:130px}
+.kb-totals{display:flex;gap:0;margin-left:auto;font-size:11px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;overflow:hidden}
+.kb-totals-item{padding:6px 14px;border-right:1px solid #2a2a2a;display:flex;flex-direction:column;align-items:center;gap:1px}
+.kb-totals-item:last-child{border-right:none}
+.kb-totals-item b{font-size:15px;font-weight:500;color:#fff;line-height:1}
+.kb-totals-item span{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.4px}
+.kb-toggle{display:flex;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;overflow:hidden}
+.kb-toggle button{padding:5px 12px;border:none;background:transparent;color:#666;cursor:pointer;font-size:11px;transition:all .15s}
+.kb-toggle button.active{background:#2a2a2a;color:#fff}
+
+/* ── Board e colunas ── */
+.kb-board{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;padding:12px;min-height:calc(100vh - 110px);align-items:flex-start}
+.kb-col{background:#161616;border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
+.kb-col-header{padding:10px 12px 8px;display:flex;align-items:center;gap:6px}
+.kb-col-header-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;flex:1}
+.kb-col-counter{font-size:11px;background:#242424;color:#666;padding:1px 7px;border-radius:10px;font-weight:400}
+.kb-col-body{padding:6px;display:flex;flex-direction:column;gap:6px;flex:1;min-height:120px;transition:background .15s;border-radius:0 0 10px 10px}
+.kb-col-empty{display:flex;align-items:center;justify-content:center;min-height:80px;border:1.5px dashed #252525;border-radius:8px;color:#333;font-size:11px;margin:2px}
+
+/* Cores por coluna */
+.kb-col[data-col=confirmado] .kb-col-header{border-bottom:2px solid #3b82f6}
+.kb-col[data-col=confirmado] .kb-col-header-label{color:#60a5fa}
+.kb-col[data-col=chegou] .kb-col-header{border-bottom:2px solid #8b5cf6}
+.kb-col[data-col=chegou] .kb-col-header-label{color:#a78bfa}
+.kb-col[data-col=em_atendimento] .kb-col-header{border-bottom:2px solid #f59e0b}
+.kb-col[data-col=em_atendimento] .kb-col-header-label{color:#fbbf24}
+.kb-col[data-col=concluido] .kb-col-header{border-bottom:2px solid #10b981}
+.kb-col[data-col=concluido] .kb-col-header-label{color:#34d399}
+.kb-col[data-col=nao_compareceu] .kb-col-header{border-bottom:2px solid #6b7280}
+.kb-col[data-col=nao_compareceu] .kb-col-header-label{color:#9ca3af}
+.kb-col[data-col=cancelado] .kb-col-header{border-bottom:2px solid #ef4444}
+.kb-col[data-col=cancelado] .kb-col-header-label{color:#f87171}
+
+/* ── Cards ── */
+.kb-card{background:#1e1e1e;border-radius:8px;padding:10px 12px;cursor:grab;border:1px solid #2a2a2a;transition:border-color .15s,box-shadow .15s;position:relative}
+.kb-card:hover{border-color:#444;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.kb-card:active{cursor:grabbing}
+.kb-card:hover .card-actions{max-height:32px;opacity:1;margin-top:8px}
+.card-hora{font-size:13px;font-weight:600;color:#fff;letter-spacing:.3px}
+.card-nome{font-size:13px;color:#e2e8f0;margin:3px 0 1px;font-weight:500}
+.card-servico{font-size:11px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-footer{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
+.card-preco{font-size:12px;color:#94a3b8;font-weight:500}
+.card-actions{max-height:0;opacity:0;display:flex;gap:4px;overflow:hidden;transition:max-height .2s,opacity .2s,margin-top .2s;flex-wrap:wrap}
+.card-btn{font-size:10px;padding:3px 8px;border-radius:4px;border:1px solid #333;background:#242424;color:#aaa;cursor:pointer;transition:all .15s;white-space:nowrap}
+.card-btn:hover{border-color:#555;color:#fff}
+.card-btn-green{border-color:#166534;background:#052e16;color:#4ade80}
+.card-btn-green:hover{background:#14532d}
+.card-btn-amber{border-color:#78350f;background:#1c1400;color:#fbbf24}
+.card-btn-amber:hover{background:#451a03}
+.card-btn-red{border-color:#7f1d1d;background:#1c0606;color:#f87171}
+.card-btn-red:hover{background:#450a0a}
+
+/* Badges barbeiro */
+.badge-b1{background:#1e3a5f;color:#93c5fd;font-size:10px;padding:2px 7px;border-radius:4px;font-weight:500}
+.badge-b2{background:#1a3a2e;color:#6ee7b7;font-size:10px;padding:2px 7px;border-radius:4px;font-weight:500}
+.badge-b3{background:#3a2210;color:#fdba74;font-size:10px;padding:2px 7px;border-radius:4px;font-weight:500}
+
+/* Timer */
+.timer-badge{font-size:10px;color:#fbbf24;margin-left:6px;background:#1c1400;padding:1px 5px;border-radius:3px;border:1px solid #78350f}
+
+/* Drag estados */
+.col-drag-over .kb-col-body{background:#0d1f0d;outline:1.5px dashed #22c55e;border-radius:0 0 10px 10px}
+.col-no-drop{opacity:.3;pointer-events:none}
+
+/* Refresh */
+.refresh-tag{font-size:10px;color:#4ade80;opacity:0;transition:opacity .3s}
+.refresh-tag.on{opacity:1}
+
+/* Modal */
+.kb-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:1000}
+.kb-overlay.open{display:flex}
+.kb-modal{background:#181818;border-radius:12px;padding:24px;width:460px;max-width:95vw;border:1px solid #2a2a2a;position:relative}
+.kb-modal h3{margin:0 0 18px;font-size:15px;font-weight:500;color:#e2e8f0}
+.fg{margin-bottom:12px}
+.fg label{display:block;font-size:11px;color:#666;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px}
+.fg input,.fg select{width:100%;padding:8px 10px;background:#242424;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px;box-sizing:border-box;transition:border-color .15s}
+.fg input:focus,.fg select:focus{outline:none;border-color:#555}
+.fg select:disabled{opacity:.35}
+.modal-error{color:#f87171;font-size:12px;margin-top:8px;display:none;padding:6px 10px;background:#1c0606;border-radius:4px;border:1px solid #7f1d1d}
+.modal-error.on{display:block}
+.btn-red{background:#dc2626;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;transition:background .15s}
+.btn-red:hover{background:#b91c1c}
+.btn-ghost{background:transparent;color:#666;border:1px solid #333;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;transition:all .15s}
+.btn-ghost:hover{border-color:#555;color:#aaa}
+.kb-modal-footer{display:flex;gap:8px;margin-top:18px}
+.kb-modal-close{position:absolute;top:14px;right:14px;background:transparent;border:none;color:#555;cursor:pointer;font-size:18px;line-height:1;padding:2px 6px}
+.kb-modal-close:hover{color:#aaa}
+
+/* Modo por barbeiro */
+.kb-by-barber{display:none;flex-direction:column;gap:16px;padding:12px}
+.kb-barber-row{border:1px solid #1e1e1e;border-radius:10px;overflow:hidden}
+.kb-barber-label{font-size:12px;font-weight:500;padding:8px 12px;background:#161616;color:#ccc;border-bottom:1px solid #1e1e1e}
+.kb-barber-cols{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;padding:8px;background:#0e0e0e}
+.kb-barber-cols .kb-col{background:#141414}
+.kb-barber-cols .kb-col-header{padding:7px 10px 6px}
+.kb-barber-cols .kb-card{padding:8px 10px}
 `
 
 function kanbanStatusKey(status) {
@@ -2151,41 +2209,47 @@ function renderKanbanCard(ag) {
   const timerHtml = colKey === 'em_atendimento'
     ? `<span class="timer-badge" data-inicio="${escapeHtml(ag.data_hora_inicio)}">0min</span>`
     : ''
-  const actions = []
+  let acoes = ''
   if (colKey === 'confirmado') {
-    actions.push(`<button type="button" class="btn-ghost" data-action="chegou" data-id="${ag.id}">Chegou</button>`)
-    actions.push(`<button type="button" class="btn-ghost" data-action="noshow" data-id="${ag.id}">No-show</button>`)
-    actions.push(`<button type="button" class="btn-red" data-action="cancelar" data-id="${ag.id}" title="Cancelar">${ic.trash}</button>`)
+    acoes = `<button type="button" class="card-btn card-btn-green" data-action="chegou" data-id="${ag.id}">✓ Chegou</button>`
+      + `<button type="button" class="card-btn card-btn-red" data-action="noshow" data-id="${ag.id}">✗ No-show</button>`
+      + `<button type="button" class="card-btn card-btn-red" data-action="cancelar" data-id="${ag.id}">🗑</button>`
   } else if (colKey === 'chegou') {
-    actions.push(`<button type="button" class="btn-ghost" data-action="iniciar" data-id="${ag.id}">Iniciar</button>`)
-    actions.push(`<button type="button" class="btn-ghost" data-action="noshow" data-id="${ag.id}">No-show</button>`)
+    acoes = `<button type="button" class="card-btn card-btn-amber" data-action="iniciar" data-id="${ag.id}">▶ Iniciar</button>`
+      + `<button type="button" class="card-btn card-btn-red" data-action="noshow" data-id="${ag.id}">✗ No-show</button>`
   } else if (colKey === 'em_atendimento') {
-    actions.push(`<button type="button" class="btn-ghost" data-action="concluir" data-id="${ag.id}">Concluir</button>`)
+    acoes = `<button type="button" class="card-btn card-btn-green" data-action="concluir" data-id="${ag.id}">✓ Concluir</button>`
   }
   return `
   <div class="kb-card" draggable="true" data-card-id="${ag.id}" data-staff-id="${escapeHtml(ag.staff_id)}"
        data-drag-id="${ag.id}" data-drag-status="${colKey}">
-    <div class="card-hora">${hora}${timerHtml}</div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <span class="card-hora">${hora}${timerHtml}</span>
+      <span class="${kanbanBadgeClass(ag.staff_id)}">${barbeiro}</span>
+    </div>
     <div class="card-nome">${nome}</div>
     <div class="card-servico">${servico}</div>
     <div class="card-footer">
-      <span class="${kanbanBadgeClass(ag.staff_id)}">${barbeiro}</span>
-      <span style="font-size:12px;color:#aaa">R$ ${preco.toFixed(2)}</span>
+      <span class="card-preco">R$ ${preco.toFixed(2)}</span>
     </div>
-    ${actions.length ? `<div class="card-actions">${actions.join('')}</div>` : ''}
+    ${acoes ? `<div class="card-actions">${acoes}</div>` : ''}
   </div>`
 }
 
 function renderKanbanColumn(col, ags) {
-  const cards = ags
+  const cardsHtml = ags
     .filter((a) => kanbanStatusKey(a.status) === col.key)
     .map((a) => renderKanbanCard(a))
     .join('')
   const count = ags.filter((a) => kanbanStatusKey(a.status) === col.key).length
+  const colBody = cardsHtml || '<div class="kb-col-empty">Arraste aqui</div>'
   return `
   <div class="kb-col" data-col="${col.key}">
-    <div class="kb-col-header"><span>${col.label}</span><span class="kb-count">(${count})</span></div>
-    <div class="kb-col-body">${cards}</div>
+    <div class="kb-col-header">
+      <span class="kb-col-header-label">${col.label}</span>
+      <span class="kb-col-counter kb-count">${count}</span>
+    </div>
+    <div class="kb-col-body">${colBody}</div>
   </div>`
 }
 
@@ -2230,8 +2294,10 @@ receptionRouter.get('/kanban', (req, res) => {
   <style>${KANBAN_CSS}</style>
   <div class="kb-content">
     <div class="kb-header">
-      <h2 style="font-size:16px;font-weight:500;margin:0">${escapeHtml(tituloDia)}</h2>
-      <input type="date" id="kbData" value="${escapeHtml(data)}">
+      <h2>${escapeHtml(tituloDia)}</h2>
+      <label style="font-size:11px;color:#666;display:flex;flex-direction:column;gap:3px">Data
+        <input type="date" id="kbData" value="${escapeHtml(data)}">
+      </label>
       <button type="button" class="btn btn-primary btn-sm" id="btnNovoAg">${ic.plus} Novo agendamento</button>
       <div class="kb-toggle">
         <button type="button" id="toggleTodos" class="active">Todos os barbeiros</button>
@@ -2239,9 +2305,9 @@ receptionRouter.get('/kanban', (req, res) => {
       </div>
       <span class="refresh-tag" id="refreshTag">Atualizado</span>
       <div class="kb-totals">
-        <span><b>${totais.totalAtivos}</b> agendamentos</span>
-        <span>R$ <b>${totais.totalValor.toFixed(2)}</b></span>
-        <span><b>${totais.qtdConcluidos}</b> concluídos</span>
+        <div class="kb-totals-item"><b>${totais.totalAtivos}</b><span>Agendados</span></div>
+        <div class="kb-totals-item"><b>R$${totais.totalValor.toFixed(0)}</b><span>Em aberto</span></div>
+        <div class="kb-totals-item"><b>${totais.qtdConcluidos}</b><span>Concluídos</span></div>
       </div>
     </div>
     <div id="kbBoard" class="kb-board" data-mode="todos">${colsHtml}</div>
@@ -2249,7 +2315,7 @@ receptionRouter.get('/kanban', (req, res) => {
   </div>
   <div class="kb-overlay" id="kbOverlay">
     <div class="kb-modal" onclick="event.stopPropagation()">
-      <button type="button" id="kbModalClose" class="btn-ghost" style="position:absolute;top:12px;right:12px;padding:4px 10px">✕</button>
+      <button type="button" id="kbModalClose" class="kb-modal-close" aria-label="Fechar">✕</button>
       <h3>Novo agendamento</h3>
       <div class="fg"><label>Nome do cliente *</label><input type="text" id="mNome" required></div>
       <div class="fg"><label>WhatsApp</label><input type="tel" id="mWhats" placeholder="55XXXXXXXXXXX"></div>
@@ -2258,7 +2324,7 @@ receptionRouter.get('/kanban', (req, res) => {
       <div class="fg"><label>Data *</label><input type="date" id="mData" value="${escapeHtml(data)}" required></div>
       <div class="fg"><label>Horário *</label><select id="mHorario" disabled><option value="">Selecione barbeiro, data e serviço</option></select></div>
       <div class="modal-error" id="modalErr"></div>
-      <div style="display:flex;gap:8px;margin-top:16px">
+      <div class="kb-modal-footer">
         <button type="button" class="btn-red" id="btnAgendar">Agendar</button>
         <button type="button" class="btn-ghost" id="btnModalCancel">Cancelar</button>
       </div>
@@ -2297,15 +2363,25 @@ receptionRouter.get('/kanban', (req, res) => {
     const hora = formatHoraJs(ag.data_hora_inicio);
     const timer = colKey === 'em_atendimento'
       ? '<span class="timer-badge" data-inicio="'+ag.data_hora_inicio+'">0min</span>' : '';
-    let actions = '';
-    if (colKey === 'confirmado') {
-      actions = '<div class="card-actions"><button type="button" class="btn-ghost" data-action="chegou" data-id="'+ag.id+'">Chegou</button><button type="button" class="btn-ghost" data-action="noshow" data-id="'+ag.id+'">No-show</button><button type="button" class="btn-red" data-action="cancelar" data-id="'+ag.id+'">🗑</button></div>';
-    } else if (colKey === 'chegou') {
-      actions = '<div class="card-actions"><button type="button" class="btn-ghost" data-action="iniciar" data-id="'+ag.id+'">Iniciar</button><button type="button" class="btn-ghost" data-action="noshow" data-id="'+ag.id+'">No-show</button></div>';
-    } else if (colKey === 'em_atendimento') {
-      actions = '<div class="card-actions"><button type="button" class="btn-ghost" data-action="concluir" data-id="'+ag.id+'">Concluir</button></div>';
-    }
-    return '<div class="kb-card" draggable="true" data-card-id="'+ag.id+'" data-staff-id="'+ag.staff_id+'" data-drag-id="'+ag.id+'" data-drag-status="'+colKey+'"><div class="card-hora">'+hora+timer+'</div><div class="card-nome">'+nome+'</div><div class="card-servico">'+servico+'</div><div class="card-footer"><span class="'+kbBadgeClass(ag.staff_id)+'">'+barbeiro+'</span><span style="font-size:12px;color:#aaa">R$ '+preco.toFixed(2)+'</span></div>'+actions+'</div>';
+    const btnChegou = '<button type="button" class="card-btn card-btn-green" data-action="chegou" data-id="'+ag.id+'">✓ Chegou</button>';
+    const btnIniciar = '<button type="button" class="card-btn card-btn-amber" data-action="iniciar" data-id="'+ag.id+'">▶ Iniciar</button>';
+    const btnConcluir = '<button type="button" class="card-btn card-btn-green" data-action="concluir" data-id="'+ag.id+'">✓ Concluir</button>';
+    const btnNoshow = '<button type="button" class="card-btn card-btn-red" data-action="noshow" data-id="'+ag.id+'">✗ No-show</button>';
+    const btnCancel = '<button type="button" class="card-btn card-btn-red" data-action="cancelar" data-id="'+ag.id+'">🗑</button>';
+    let acoes = '';
+    if (colKey === 'confirmado') acoes = btnChegou + btnNoshow + btnCancel;
+    else if (colKey === 'chegou') acoes = btnIniciar + btnNoshow;
+    else if (colKey === 'em_atendimento') acoes = btnConcluir;
+    return '<div class="kb-card" draggable="true" data-card-id="'+ag.id+'" data-staff-id="'+ag.staff_id+'" data-drag-id="'+ag.id+'" data-drag-status="'+colKey+'">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start">'
+      + '<span class="card-hora">'+hora+timer+'</span>'
+      + '<span class="'+kbBadgeClass(ag.staff_id)+'">'+barbeiro+'</span>'
+      + '</div>'
+      + '<div class="card-nome">'+nome+'</div>'
+      + '<div class="card-servico">'+servico+'</div>'
+      + '<div class="card-footer"><span class="card-preco">R$ '+preco.toFixed(2)+'</span></div>'
+      + (acoes ? '<div class="card-actions">'+acoes+'</div>' : '')
+      + '</div>';
   }
   function isByBarber() {
     return document.getElementById('kbByBarber').style.display !== 'none';
@@ -2327,7 +2403,7 @@ receptionRouter.get('/kanban', (req, res) => {
       root.querySelectorAll('.kb-col').forEach(col => {
         const n = col.querySelectorAll('.kb-card').length;
         const el = col.querySelector('.kb-count');
-        if (el) el.textContent = '('+n+')';
+        if (el) el.textContent = String(n);
       });
     });
   }
