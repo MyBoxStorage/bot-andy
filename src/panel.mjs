@@ -2027,7 +2027,7 @@ receptionRouter.post('/caixa/definir-fundo', express.urlencoded({ extended: fals
 })
 
 receptionRouter.post('/caixa/fechar', express.urlencoded({ extended: false }), (req, res) => {
-  const hoje = hojeStr()
+  const hoje = req.body.data || hojeStr()  // permite fechar caixa retroativo
   const resultado = fecharCaixaDia(hoje, 'recepcao')
   if (resultado.erro) return res.redirect(`/${RECEPTION_SECRET}/caixa?msg=pendentes`)
 
@@ -2115,6 +2115,15 @@ receptionRouter.get('/caixa', (req, res) => {
       </div>` : ''
 
   const body = `
+  <div class="toolbar" style="margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+    <div style="display:flex;align-items:center;gap:.5rem">
+      <span class="toolbar-label" style="font-size:.75rem;color:var(--muted)">Data do caixa:</span>
+      <input type="date" id="caixaDataNav" value="${data}" style="padding:5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text1);font-size:.8rem"
+        onchange="window.location.href='/${RECEPTION_SECRET}/caixa?data='+this.value">
+    </div>
+    ${data !== hojeStr() ? `<span style="font-size:.72rem;background:rgba(245,158,11,.15);color:var(--amber);padding:.2rem .65rem;border-radius:20px;border:1px solid rgba(245,158,11,.3)">${ic.warn} Caixa retroativo — ${dataLabel}</span>` : ''}
+    <a href="/${RECEPTION_SECRET}/caixa/historico" class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:.75rem">${ic.list || '📋'} Histórico de caixas</a>
+  </div>
   ${msg === 'fechado' ? `<div class="alert alert-success">${ic.check} Caixa fechado! Relatório enviado para o Andy.</div>` : ''}
   ${msg === 'reaberto' ? `<div class="alert alert-success">${ic.check} Caixa reaberto.</div>` : ''}
   ${msg === 'pendentes' ? `<div class="alert" style="background:var(--amber-dim);border:1px solid rgba(245,158,11,.3);color:var(--amber);padding:.7rem 1rem;border-radius:var(--radius-sm);font-size:.82rem;margin-bottom:1rem">${ic.warn} Há atendimentos sem pagamento. Regularize antes de fechar ou use o admin para forçar.</div>` : ''}
@@ -2159,7 +2168,7 @@ receptionRouter.get('/caixa', (req, res) => {
   </div>
   <div style="display:flex;gap:.75rem;flex-wrap:wrap">
     ${caixa.status === 'aberto'
-      ? `<form method="POST" action="/${RECEPTION_SECRET}/caixa/fechar"><button type="submit" class="btn btn-primary" onclick="return confirm('Fechar o caixa de hoje? Relatório será enviado para o Andy.')">${ic.check} Fechar caixa do dia</button></form>`
+      ? `<form method="POST" action="/${RECEPTION_SECRET}/caixa/fechar"><input type="hidden" name="data" value="${data}"><button type="submit" class="btn btn-primary" onclick="return confirm('Fechar caixa de ' + '${dataLabel}' + '? Relatório será enviado para o Andy.')">${ic.check} ${data === hojeStr() ? 'Fechar caixa do dia' : 'Fechar caixa retroativo'}</button></form>`
       : `<form method="POST" action="/${RECEPTION_SECRET}/caixa/reabrir"><button type="submit" class="btn btn-ghost" onclick="return confirm('Reabrir o caixa?')">Reabrir caixa</button></form>`}
     <a href="/${RECEPTION_SECRET}/caixa/historico" class="btn btn-ghost">${ic.cal} Histórico</a>
   </div>`
