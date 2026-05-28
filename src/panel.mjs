@@ -2113,9 +2113,29 @@ receptionRouter.get('/caixa', (req, res) => {
     : ''
 
   const alertaPendentes = resumo.semPagamento.length
-    ? `<div class="alert" style="background:var(--amber-dim);border:1px solid rgba(245,158,11,.3);color:var(--amber);padding:.7rem 1rem;border-radius:var(--radius-sm);font-size:.82rem;margin-bottom:1rem">
-        ${ic.warn} <strong>${resumo.semPagamento.length} atendimento(s) sem pagamento:</strong>
-        ${resumo.semPagamento.map(a => escapeHtml(`${a.cliente_nome || 'Cliente'} — ${a.servico_nome || a.servico_id} (${formatHora(a.data_hora_inicio)})`)).join(', ')}
+    ? `<div style="background:var(--amber-dim);border:1px solid rgba(245,158,11,.3);border-radius:var(--radius-sm);margin-bottom:1rem;overflow:hidden">
+        <div style="padding:.7rem 1rem;color:var(--amber);font-size:.82rem;font-weight:600;display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="var n=this.nextElementSibling;n.style.display=n.style.display==='none'?'block':'none'">
+          <span>${ic.warn} ${resumo.semPagamento.length} atendimento(s) sem pagamento — clique para regularizar</span>
+          <span style="font-size:.7rem;opacity:.7">▼</span>
+        </div>
+        <div style="display:block;border-top:1px solid rgba(245,158,11,.2)">
+          ${resumo.semPagamento.map(a => `
+          <div style="padding:.75rem 1rem;border-bottom:1px solid rgba(255,255,255,.05);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+            <div style="flex:1;min-width:160px">
+              <div style="font-size:.82rem;font-weight:600;color:var(--text1)">${escapeHtml(a.cliente_nome || 'Cliente')}</div>
+              <div style="font-size:.72rem;color:var(--muted)">${escapeHtml(a.servico_nome || a.servico_id)} &middot; ${formatHora(a.data_hora_inicio)} &middot; <span style="color:var(--green);font-weight:600">R$ ${Number(a.servico_preco||0).toFixed(2).replace('.',',')}</span></div>
+            </div>
+            <form onsubmit="pagarPendente(event,${a.id},${a.servico_preco||0})" style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
+              <select name="forma" style="padding:.3rem .5rem;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text1);font-size:.75rem">
+                <option value="pix">Pix</option>
+                <option value="dinheiro">Dinheiro</option>
+                <option value="cartao_debito">Cartão Débito</option>
+                <option value="cartao_credito">Cartão Crédito</option>
+              </select>
+              <button type="submit" class="btn btn-primary btn-sm" style="font-size:.72rem;padding:.3rem .75rem">${ic.check} Registrar</button>
+            </form>
+          </div>`).join('')}
+        </div>
       </div>` : ''
 
   const body = `
@@ -2177,7 +2197,32 @@ receptionRouter.get('/caixa', (req, res) => {
     <a href="/${RECEPTION_SECRET}/caixa/historico" class="btn btn-ghost">${ic.cal} Histórico</a>
   </div>`
 
-  res.send(shell('caixa', 'Caixa do Dia', dataLabel, body, '', RECEPTION_SECRET))
+
+  const script = `
+    async function pagarPendente(e, agId, preco) {
+      e.preventDefault()
+      const forma = e.target.querySelector('[name=forma]').value
+      const btn = e.target.querySelector('button')
+      btn.disabled = true
+      btn.textContent = 'Salvando...'
+      try {
+        const r = await fetch('/${RECEPTION_SECRET}/caixa/pagar-atendimento', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agendamento_id: agId,
+            pagamento_itens: [{ forma: forma, valor: Number(preco) }]
+          })
+        })
+        const d = await r.json()
+        if (d.erro) { alert('Erro: ' + d.erro); btn.disabled = false; btn.textContent = 'Registrar'; return }
+        e.target.closest('[style*="border-bottom"]').style.opacity = '0.4'
+        e.target.innerHTML = '<span style="color:var(--green)">✓ Registrado</span>'
+        setTimeout(() => location.reload(), 800)
+      } catch(err) { alert('Falha ao registrar'); btn.disabled = false; btn.textContent = 'Registrar' }
+    }
+  `
+  res.send(shell('caixa', 'Caixa do Dia', dataLabel, body, script, RECEPTION_SECRET))
 })
 
 receptionRouter.get('/caixa/historico', (req, res) => {
