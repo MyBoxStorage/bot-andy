@@ -18,6 +18,9 @@ import {
   criarDespesa, getDespesas, deletarDespesa, getFechamentoDetalhe,
   confirmarPresenca, marcarNaoCompareceu,
   moverAgendamentoKanban, getAgendamentosKanban,
+  getOuCriarCaixaDia, definirFundoInicial, registrarPagamentoCaixa,
+  estornarPagamentoCaixa, getResumoCaixaDia, fecharCaixaDia,
+  reabrirCaixaDia, listarCaixas, registrarVendaProdutoAvulsa,
 } from './db.mjs'
 import { deleteEvent, createEvent, findFreeSlots } from './calendar.mjs'
 import { criarAgendamentoTool } from './tools.mjs'
@@ -186,6 +189,13 @@ function hojeStr() {
 
 /** Categorias sugeridas para despesas (schema aceita texto livre). */
 const CATEGORIAS_DESPESA = ['outros', 'aluguel', 'marketing', 'materiais', 'pessoal', 'utilidades', 'impostos']
+
+const FORMAS_LABEL_SERVER = {
+  pix: 'PIX',
+  dinheiro: 'Dinheiro',
+  debito: 'Cartão Débito',
+  credito: 'Cartão Crédito',
+}
 
 function formatDataHoraPainel(sqliteDt) {
   if (!sqliteDt) return '—'
@@ -757,14 +767,15 @@ function shell(page, title, subtitle, body, script = '', secret = SECRET) {
   ]
   const navFinanceiro = [
     { id:'financeiro',              label:'Financeiro',           icon:ic.money },
+    { id:'financeiro/caixa-hoje',   label:'Caixa Hoje',           icon:ic.chart },
     { id:'financeiro/comissoes',    label:'Comissões',           icon:ic.chart },
     { id:'financeiro/fechamentos',  label:'Fechamentos',         icon:ic.check },
     { id:'financeiro/despesas',     label:'Despesas',            icon:ic.box },
   ]
   const navReception = [
-    { id:'kanban',                label:'Kanban',       icon:ic.chart },
+    { id:'kanban',                label:'Atendimentos', icon:ic.chart },
+    { id:'caixa',                 label:'Caixa do Dia', icon:ic.money },
     { id:'agenda',                label:'Agenda',       icon:ic.cal },
-    { id:'agenda/agendar-manual', label:'Ag. Manual',   icon:ic.plus },
     { id:'despesas',              label:'Despesas',     icon:ic.box },
   ]
 
@@ -1878,7 +1889,8 @@ receptionRouter.get('/despesas', (req, res) => {
       <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Obs</th></tr></thead>
       <tbody>${linhasTab}</tbody>
     </table>
-  </div>`
+  </div>
+  `
 
   res.send(shell('despesas', 'Despesas', 'Registro de saídas (recepção)', body, '', RECEPTION_SECRET))
 })
@@ -1902,6 +1914,293 @@ receptionRouter.post('/despesas/criar', express.urlencoded({ extended: false }),
   })
   log(`Recepção: despesa "${descricao}" ${valor}`)
   res.redirect(`/${RECEPTION_SECRET}/despesas?msg=ok`)
+})
+
+// ═══════════════════════════════════════════════════════════════
+//  ROTAS DE CAIXA (recepção)
+// ═══════════════════════════════════════════════════════════════
+
+receptionRouter.post('/caixa/fundo-inicial', express.json(), (req, res) => {
+  const { valor } = req.body || {}
+  try {
+    definirFundoInicial(hojeStr(), Number(valor) || 0)
+    res.json({ ok: true })
+  } catch (e) { log('Erro fundo-inicial:', e.message); res.status(500).json({ erro: e.message }) }
+})
+
+receptionRouter.post('/caixa/pagar-atendimento', express.json(), (req, res) => {
+  const { agendamento_id, pagamento_itens, valor_recebido_dinheiro, troco, produtos_vendidos } = req.body || {}
+  if (!agendamento_id || !pagamento_itens?.length) {
+    return res.status(400).json({ erro: 'agendamento_id e pagamento_itens são obrigatórios' })
+  }
+  try {
+    const ag = getAgendamento(Number(agendamento_id))
+    if (!ag) return res.status(404).json({ erro: 'Agendamento não encontrado' })
+    const servico = getDb().prepare(`SELECT * FROM servicos WHERE id = ?`).get(ag.servico_id)
+    const hoje = hojeStr()
+    getOuCriarCaixaDia(hoje)
+
+    registrarPagamentoCaixa({
+      data: hoje, tipo: 'servico', agendamento_id: ag.id, venda_produto_id: null,
+      staff_id: ag.staff_id,
+      descricao: `${servico?.nome || ag.servico_id} — ${ag.cliente_nome || 'Cliente'}`,
+      valor_servico: servico?.preco || 0,
+      pagamento_itens,
+      valor_recebido_dinheiro: Number(valor_recebido_dinheiro) || 0,
+      troco: Number(troco) || 0,
+    })
+
+    if (Array.isArray(produtos_vendidos) && produtos_vendidos.length > 0) {
+      for (const pv of produtos_vendidos) {
+        const prod = getDb().prepare(`SELECT * FROM produtos WHERE id = ?`).get(pv.produto_id)
+        if (!prod) continue
+        const vendaId = registrarVendaProdutoAvulsa({
+          whatsapp_number: ag.whatsapp_number,
+          produto_id: pv.produto_id,
+          quantidade: pv.quantidade,
+          valor_unitario: prod.preco,
+        })
+        getDb().prepare(`UPDATE vendas_produtos SET agendamento_id = ? WHERE id = ?`).run(ag.id, vendaId)
+        registrarPagamentoCaixa({
+          data: hoje, tipo: 'produto', agendamento_id: ag.id, venda_produto_id: vendaId,
+          staff_id: ag.staff_id,
+          descricao: `${prod.nome} (x${pv.quantidade})`,
+          valor_servico: prod.preco * pv.quantidade,
+          pagamento_itens,
+          valor_recebido_dinheiro: 0, troco: 0,
+        })
+      }
+    }
+
+    // Conclui o agendamento independente do status kanban atual
+    // (pode ser 'confirmado', 'chegou' ou 'em_atendimento')
+    getDb().prepare(`
+      UPDATE agendamentos
+      SET status = 'concluido',
+          presenca_confirmada_at = COALESCE(presenca_confirmada_at, datetime('now')),
+          updated_at = datetime('now')
+      WHERE id = ? AND status NOT IN ('cancelado','no_show','concluido')
+    `).run(ag.id)
+    log(`Caixa: pagamento registrado — agendamento #${ag.id}`)
+    res.json({ ok: true })
+  } catch (e) {
+    log('Erro pagar-atendimento:', e.message)
+    res.status(500).json({ erro: e.message })
+  }
+})
+
+receptionRouter.post('/caixa/venda-produto-avulsa', express.json(), (req, res) => {
+  const { produto_id, quantidade, staff_id, pagamento_itens, valor_recebido_dinheiro, troco } = req.body || {}
+  if (!produto_id || !staff_id || !pagamento_itens?.length) {
+    return res.status(400).json({ erro: 'produto_id, staff_id e pagamento_itens são obrigatórios' })
+  }
+  try {
+    const prod = getDb().prepare(`SELECT * FROM produtos WHERE id = ?`).get(produto_id)
+    if (!prod) return res.status(404).json({ erro: 'Produto não encontrado' })
+    const qtd = Number(quantidade) || 1
+    const hoje = hojeStr()
+    const vendaId = registrarVendaProdutoAvulsa({ whatsapp_number: 'avulso', produto_id, quantidade: qtd, valor_unitario: prod.preco })
+    registrarPagamentoCaixa({
+      data: hoje, tipo: 'produto', agendamento_id: null, venda_produto_id: vendaId,
+      staff_id,
+      descricao: `${prod.nome} (x${qtd}) — avulso`,
+      valor_servico: prod.preco * qtd,
+      pagamento_itens,
+      valor_recebido_dinheiro: Number(valor_recebido_dinheiro) || 0,
+      troco: Number(troco) || 0,
+    })
+    log(`Caixa: venda produto avulso — ${prod.nome} x${qtd}`)
+    res.json({ ok: true })
+  } catch (e) { log('Erro venda-produto-avulsa:', e.message); res.status(500).json({ erro: e.message }) }
+})
+
+receptionRouter.post('/caixa/estornar/:id', (req, res) => {
+  const id = Number(req.params.id)
+  estornarPagamentoCaixa(id)
+  log(`Caixa: estorno pagamento #${id}`)
+  res.json({ ok: true })
+})
+
+receptionRouter.post('/caixa/definir-fundo', express.urlencoded({ extended: false }), (req, res) => {
+  definirFundoInicial(hojeStr(), Number(req.body?.valor) || 0)
+  res.redirect(`/${RECEPTION_SECRET}/caixa`)
+})
+
+receptionRouter.post('/caixa/fechar', express.urlencoded({ extended: false }), (req, res) => {
+  const hoje = hojeStr()
+  const resultado = fecharCaixaDia(hoje, 'recepcao')
+  if (resultado.erro) return res.redirect(`/${RECEPTION_SECRET}/caixa?msg=pendentes`)
+
+  try {
+    const andyPhone = getConfig('andy_phone') || ''
+    const andyNum = andyPhone.replace(/\D/g, '').replace(/@.*/, '')
+    if (andyNum && andyNum.length >= 10) {
+      const jid = andyNum.endsWith('@c.us') ? andyNum : `${andyNum}@c.us`
+      const r = resultado.resumo
+      const dataLabel = new Date(hoje + 'T12:00:00-03:00').toLocaleDateString('pt-BR', {
+        weekday: 'long', day: '2-digit', month: 'long', timeZone: 'America/Sao_Paulo',
+      })
+      const formasTexto = Object.entries(r.totaisPorForma)
+        .filter(([, v]) => v > 0)
+        .map(([f, v]) => `  • ${FORMAS_LABEL_SERVER[f] || f}: R$ ${Number(v).toFixed(2).replace('.', ',')}`)
+        .join('\n')
+      const porBarbeiroTexto = r.porBarbeiro
+        .filter(b => b.total > 0)
+        .map(b => `  • ${b.nome}: ${b.atendimentos} atend. / ${b.produtos} prod. → R$ ${Number(b.total).toFixed(2).replace('.', ',')}`)
+        .join('\n')
+      const estornosTexto = r.estornos && r.estornos.length > 0
+        ? `\n\n⚠️ *Estornos realizados (${r.estornos.length}):*\n` +
+          r.estornos.map(e => `  • ${e.descricao} — R$ ${Number(e.valor_servico).toFixed(2).replace('.', ',')} (${e.barbeiro_nome || e.staff_id})`).join('\n') +
+          `\n  Total estornado: -R$ ${Number(r.totalEstornado).toFixed(2).replace('.', ',')}`
+        : ''
+      const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+      const msg = `📊 *FECHAMENTO DE CAIXA — ${dataLabel.toUpperCase()}*\n\n💰 *Total bruto:* R$ ${Number(r.totalBruto).toFixed(2).replace('.', ',')}\n💸 *Total despesas:* R$ ${Number(r.totalDespesas).toFixed(2).replace('.', ',')}\n✅ *Saldo líquido:* R$ ${Number(r.saldoLiquido).toFixed(2).replace('.', ',')}${estornosTexto}\n\n📋 *Por forma de pagamento:*\n${formasTexto || '  — Nenhum pagamento'}\n\n👤 *Por barbeiro:*\n${porBarbeiroTexto || '  — Nenhum atendimento'}\n\n🛒 *Atendimentos:* ${r.atendimentos} | *Produtos:* ${r.vendasProdutos}\n💵 *Fundo inicial:* R$ ${Number(r.caixa.fundo_inicial).toFixed(2).replace('.', ',')}\n\n_Fechado às ${hora} pela recepção_`
+      enfileirarMensagem(jid, msg, 'critica')
+    }
+  } catch (e) { log('Erro ao enviar WhatsApp fechamento:', e.message) }
+
+  log(`Caixa: fechado — ${hoje}`)
+  res.redirect(`/${RECEPTION_SECRET}/caixa?msg=fechado`)
+})
+
+receptionRouter.post('/caixa/reabrir', express.urlencoded({ extended: false }), (req, res) => {
+  reabrirCaixaDia(hojeStr())
+  log(`Caixa: reaberto — ${hojeStr()}`)
+  res.redirect(`/${RECEPTION_SECRET}/caixa?msg=reaberto`)
+})
+
+receptionRouter.get('/caixa', (req, res) => {
+  const data = req.query.data || hojeStr()
+  const resumo = getResumoCaixaDia(data)
+  const caixa = resumo.caixa
+  const msg = req.query.msg || ''
+  const dataLabel = new Date(data + 'T12:00:00-03:00').toLocaleDateString('pt-BR', {
+    weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo',
+  })
+
+  const linhasPag = resumo.pagamentos.length
+    ? resumo.pagamentos.map(p => {
+        const itens = (() => { try { return JSON.parse(p.pagamento_itens || '[]') } catch { return [] } })()
+        const formasStr = itens.map(i => `${FORMAS_LABEL_SERVER[i.forma] || i.forma}: R${Number(i.valor).toFixed(2).replace('.',',')}`).join(' + ')
+        return `<tr>
+          <td class="td-muted">${formatDataHoraPainel(p.created_at)}</td>
+          <td>${escapeHtml(p.descricao)}</td>
+          <td><span style="font-size:.72rem;color:${p.tipo==='produto'?'#f59e0b':'#60a5fa'}">${p.tipo === 'produto' ? 'Produto' : 'Serviço'}</span></td>
+          <td>${escapeHtml(p.barbeiro_nome || p.staff_id)}</td>
+          <td style="font-size:.75rem;color:#aaa">${escapeHtml(formasStr)}</td>
+          <td style="color:var(--green);font-weight:600">${fmtBRL(p.valor_servico)}</td>
+          <td><button class="btn btn-danger btn-sm" onclick="if(confirm('Estornar este pagamento? Isso será registrado no relatório.'))fetch('/${RECEPTION_SECRET}/caixa/estornar/${p.id}',{method:'POST'}).then(()=>location.reload())">Estornar</button></td>
+        </tr>`
+      }).join('')
+    : `<tr><td colspan="7"><div class="empty"><div class="empty-text">Nenhum pagamento registrado hoje</div></div></td></tr>`
+
+  // Linhas de estornos do dia
+  const linhasEstornos = resumo.estornos && resumo.estornos.length
+    ? resumo.estornos.map(e => `
+        <tr style="opacity:.65">
+          <td class="td-muted">${formatDataHoraPainel(e.estornado_em)}</td>
+          <td style="text-decoration:line-through;color:var(--muted)">${escapeHtml(e.descricao)}</td>
+          <td><span style="font-size:.72rem;color:var(--red-sem)">Estornado</span></td>
+          <td>${escapeHtml(e.barbeiro_nome || e.staff_id)}</td>
+          <td style="font-size:.75rem;color:#555">—</td>
+          <td style="color:var(--red-sem);font-weight:600">-${fmtBRL(e.valor_servico)}</td>
+          <td></td>
+        </tr>`).join('')
+    : ''
+
+  const alertaPendentes = resumo.semPagamento.length
+    ? `<div class="alert" style="background:var(--amber-dim);border:1px solid rgba(245,158,11,.3);color:var(--amber);padding:.7rem 1rem;border-radius:var(--radius-sm);font-size:.82rem;margin-bottom:1rem">
+        ${ic.warn} <strong>${resumo.semPagamento.length} atendimento(s) sem pagamento:</strong>
+        ${resumo.semPagamento.map(a => escapeHtml(`${a.cliente_nome || 'Cliente'} — ${a.servico_nome || a.servico_id} (${formatHora(a.data_hora_inicio)})`)).join(', ')}
+      </div>` : ''
+
+  const body = `
+  ${msg === 'fechado' ? `<div class="alert alert-success">${ic.check} Caixa fechado! Relatório enviado para o Andy.</div>` : ''}
+  ${msg === 'reaberto' ? `<div class="alert alert-success">${ic.check} Caixa reaberto.</div>` : ''}
+  ${msg === 'pendentes' ? `<div class="alert" style="background:var(--amber-dim);border:1px solid rgba(245,158,11,.3);color:var(--amber);padding:.7rem 1rem;border-radius:var(--radius-sm);font-size:.82rem;margin-bottom:1rem">${ic.warn} Há atendimentos sem pagamento. Regularize antes de fechar ou use o admin para forçar.</div>` : ''}
+  ${alertaPendentes}
+  <div class="stats" style="margin-bottom:1.25rem">
+    <div class="stat"><div class="stat-icon green">${ic.money}</div><div class="stat-val">${fmtBRL(resumo.totalBruto)}</div><div class="stat-lbl">Total bruto</div><div class="stat-accent green"></div></div>
+    <div class="stat"><div class="stat-icon amber">${ic.box}</div><div class="stat-val">${fmtBRL(resumo.totalDespesas)}</div><div class="stat-lbl">Despesas</div></div>
+    <div class="stat"><div class="stat-icon ${resumo.saldoLiquido >= 0 ? 'green' : 'red'}">${ic.chart}</div><div class="stat-val">${fmtBRL(resumo.saldoLiquido)}</div><div class="stat-lbl">Saldo líquido</div><div class="stat-accent ${resumo.saldoLiquido >= 0 ? 'green' : ''}"></div></div>
+    <div class="stat"><div class="stat-icon blue">${ic.cal}</div><div class="stat-val">${resumo.atendimentos}</div><div class="stat-lbl">Atendimentos</div><div class="stat-accent blue"></div></div>
+  </div>
+  <div class="section-header"><span class="section-title">Por forma de pagamento</span></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:.65rem;margin-bottom:1.25rem">
+    ${Object.entries(resumo.totaisPorForma).map(([f, v]) => `<div class="stat" style="padding:.85rem 1rem"><div class="stat-val" style="font-size:1.1rem">${fmtBRL(v)}</div><div class="stat-lbl">${FORMAS_LABEL_SERVER[f] || f}</div></div>`).join('')}
+  </div>
+  <div class="section-header"><span class="section-title">Por barbeiro</span></div>
+  <div class="table-wrap" style="margin-bottom:1.25rem">
+    <table>
+      <thead><tr><th>Barbeiro</th><th>Atendimentos</th><th>Produtos</th><th>Total</th></tr></thead>
+      <tbody>${resumo.porBarbeiro.length ? resumo.porBarbeiro.map(b => `<tr><td>${escapeHtml(b.nome)}</td><td class="td-muted">${b.atendimentos}</td><td class="td-muted">${b.produtos}</td><td style="color:var(--green);font-weight:600">${fmtBRL(b.total)}</td></tr>`).join('') : `<tr><td colspan="4"><div class="empty"><div class="empty-text">Sem dados</div></div></td></tr>`}</tbody>
+    </table>
+  </div>
+  <div class="section-header"><span class="section-title">Pagamentos registrados</span><span class="section-count">${resumo.pagamentos.length}</span></div>
+  <div class="table-wrap" style="margin-bottom:1.25rem">
+    <table>
+      <thead><tr><th>Hora</th><th>Descrição</th><th>Tipo</th><th>Barbeiro</th><th>Formas</th><th>Valor</th><th></th></tr></thead>
+      <tbody>${linhasPag}${linhasEstornos}</tbody>
+    </table>
+  </div>
+  <div class="form-card" style="max-width:480px;margin-bottom:1.25rem">
+    <div class="form-card-title">${ic.money} Status do caixa</div>
+    <div class="config-row" style="padding:.65rem 0">
+      <div class="config-meta"><div class="key">Fundo inicial</div><div class="desc">Não entra no faturamento</div></div>
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <span style="font-weight:600;color:var(--amber)">${fmtBRL(caixa.fundo_inicial)}</span>
+        ${caixa.status === 'aberto' ? `<form method="POST" action="/${RECEPTION_SECRET}/caixa/definir-fundo" style="display:flex;gap:.35rem;align-items:center"><input type="number" name="valor" min="0" step="0.01" placeholder="0,00" style="width:90px;padding:.35rem .5rem;font-size:.82rem"><button class="btn btn-ghost btn-sm" type="submit">Atualizar</button></form>` : ''}
+      </div>
+    </div>
+    <div class="config-row" style="padding:.65rem 0">
+      <div class="config-meta"><div class="key">Status</div></div>
+      ${caixa.status === 'aberto' ? `<span style="color:var(--green);font-weight:600">🟢 Aberto</span>` : `<span style="color:var(--muted);font-weight:600">🔴 Fechado em ${formatDataHoraPainel(caixa.fechado_em)}</span>`}
+    </div>
+  </div>
+  <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+    ${caixa.status === 'aberto'
+      ? `<form method="POST" action="/${RECEPTION_SECRET}/caixa/fechar"><button type="submit" class="btn btn-primary" onclick="return confirm('Fechar o caixa de hoje? Relatório será enviado para o Andy.')">${ic.check} Fechar caixa do dia</button></form>`
+      : `<form method="POST" action="/${RECEPTION_SECRET}/caixa/reabrir"><button type="submit" class="btn btn-ghost" onclick="return confirm('Reabrir o caixa?')">Reabrir caixa</button></form>`}
+    <a href="/${RECEPTION_SECRET}/caixa/historico" class="btn btn-ghost">${ic.cal} Histórico</a>
+  </div>`
+
+  res.send(shell('caixa', 'Caixa do Dia', dataLabel, body, '', RECEPTION_SECRET))
+})
+
+receptionRouter.get('/caixa/historico', (req, res) => {
+  const de  = req.query.de  || primeiroDiaMesAtualBR()
+  const ate = req.query.ate || hojeStr()
+  const caixas = listarCaixas({ dataInicio: de, dataFim: ate, limit: 60 })
+
+  const linhas = caixas.length
+    ? caixas.map(c => {
+        const r = getResumoCaixaDia(c.data)
+        return `<tr>
+          <td><a href="/${RECEPTION_SECRET}/caixa?data=${encodeURIComponent(c.data)}" style="color:var(--blue-l)">${escapeHtml(c.data)}</a></td>
+          <td style="color:var(--green);font-weight:600">${fmtBRL(r.totalBruto)}</td>
+          <td style="color:var(--amber)">${fmtBRL(r.totalDespesas)}</td>
+          <td style="color:${r.saldoLiquido>=0?'var(--green)':'var(--red-sem)'};font-weight:600">${fmtBRL(r.saldoLiquido)}</td>
+          <td class="td-muted">${r.atendimentos}</td>
+          <td>${c.status === 'fechado' ? `<span style="background:rgba(34,197,94,.12);color:#4ade80;padding:.2rem .65rem;border-radius:20px;font-size:.68rem;font-weight:600">Fechado</span>` : `<span style="background:rgba(245,158,11,.12);color:#f59e0b;padding:.2rem .65rem;border-radius:20px;font-size:.68rem;font-weight:600">Aberto</span>`}</td>
+        </tr>`
+      }).join('')
+    : `<tr><td colspan="6"><div class="empty"><div class="empty-text">Nenhum caixa no período</div></div></td></tr>`
+
+  const body = `
+  <div class="toolbar" style="margin-bottom:1rem">
+    <div class="toolbar-group"><span class="toolbar-label">De</span><input type="date" id="histDe" value="${escapeHtml(de)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">Até</span><input type="date" id="histAte" value="${escapeHtml(ate)}"></div>
+    <button class="btn btn-ghost" onclick="filtrar()">Filtrar</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Data</th><th>Total bruto</th><th>Despesas</th><th>Saldo líquido</th><th>Atend.</th><th>Status</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+  </div>`
+
+  const script = `function filtrar(){ window.location.href='/${RECEPTION_SECRET}/caixa/historico?de='+document.getElementById('histDe').value+'&ate='+document.getElementById('histAte').value }`
+  res.send(shell('caixa', 'Histórico de Caixas', `${de} a ${ate}`, body, script, RECEPTION_SECRET))
 })
 
 // ── Bloquear horário ─────────────────────────────────────────────
@@ -2104,7 +2403,10 @@ const KANBAN_CSS = `
 .kb-col-header{padding:10px 12px 8px;display:flex;align-items:center;gap:6px}
 .kb-col-header-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;flex:1}
 .kb-col-counter{font-size:11px;background:#242424;color:#666;padding:1px 7px;border-radius:10px;font-weight:400}
-.kb-col-body{padding:6px;display:flex;flex-direction:column;gap:6px;flex:1;min-height:120px;transition:background .15s;border-radius:0 0 10px 10px}
+.kb-col-body{padding:6px;display:flex;flex-direction:column;gap:6px;flex:1;min-height:120px;max-height:calc(100vh - 220px);overflow-y:auto;transition:background .15s;border-radius:0 0 10px 10px;scrollbar-width:thin;scrollbar-color:#333 transparent}
+.kb-col-body::-webkit-scrollbar{width:4px}
+.kb-col-body::-webkit-scrollbar-track{background:transparent}
+.kb-col-body::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
 .kb-col-empty{display:flex;align-items:center;justify-content:center;min-height:80px;border:1.5px dashed #252525;border-radius:8px;color:#333;font-size:11px;margin:2px}
 
 /* Cores por coluna */
@@ -2222,7 +2524,12 @@ function renderKanbanCard(ag) {
   }
   return `
   <div class="kb-card" draggable="true" data-card-id="${ag.id}" data-staff-id="${escapeHtml(ag.staff_id)}"
-       data-drag-id="${ag.id}" data-drag-status="${colKey}">
+       data-drag-id="${ag.id}" data-drag-status="${colKey}"
+       data-ag-id="${ag.id}"
+       data-nome="${escapeHtml(ag.cliente_nome || '')}"
+       data-servico="${escapeHtml(ag.servico_nome || ag.servico_id || '')}"
+       data-barbeiro="${escapeHtml(staffNameById(ag.staff_id))}"
+       data-preco="${ag.servico_preco || 0}">
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <span class="card-hora">${hora}${timerHtml}</span>
       <span class="${kanbanBadgeClass(ag.staff_id)}">${barbeiro}</span>
@@ -2239,6 +2546,7 @@ function renderKanbanCard(ag) {
 function renderKanbanColumn(col, ags) {
   const cardsHtml = ags
     .filter((a) => kanbanStatusKey(a.status) === col.key)
+    .sort((a, b) => new Date(b.data_hora_inicio) - new Date(a.data_hora_inicio))
     .map((a) => renderKanbanCard(a))
     .join('')
   const count = ags.filter((a) => kanbanStatusKey(a.status) === col.key).length
@@ -2268,6 +2576,9 @@ receptionRouter.get('/kanban', (req, res) => {
   const data = req.query.data || hojeStr()
   const ags = getAgendamentosKanban(data)
   const servicos = getServicosAtivos()
+  const produtosEstoque = getProdutosEmEstoque()
+  const staffOptsKanban = staff.filter(s => s.active)
+    .map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')
   const totais = calcularTotaisKanban(ags)
   const dataTitulo = new Date(`${data}T12:00:00-03:00`).toLocaleDateString('pt-BR', {
     weekday: 'long', day: '2-digit', month: 'long', timeZone: 'America/Sao_Paulo',
@@ -2303,6 +2614,10 @@ receptionRouter.get('/kanban', (req, res) => {
         <button type="button" id="toggleTodos" class="active">Todos os barbeiros</button>
         <button type="button" id="toggleBarbeiro">Por barbeiro</button>
       </div>
+      <button onclick="openVendaAvulsa()"
+        style="font-size:11px;padding:5px 14px;background:#1c1400;border:1px solid #78350f;color:#fbbf24;border-radius:6px;cursor:pointer">
+        + Vender Produto
+      </button>
       <span class="refresh-tag" id="refreshTag">Atualizado</span>
       <div class="kb-totals">
         <div class="kb-totals-item"><b>${totais.totalAtivos}</b><span>Agendados</span></div>
@@ -2329,9 +2644,163 @@ receptionRouter.get('/kanban', (req, res) => {
         <button type="button" class="btn-ghost" id="btnModalCancel">Cancelar</button>
       </div>
     </div>
+  </div>
+
+  <div class="kb-overlay" id="payOverlay">
+    <div class="kb-modal" style="width:500px;max-width:95vw">
+      <button class="kb-modal-close" onclick="closePayModal()">✕</button>
+      <h3 id="payModalTitle">Registrar Pagamento</h3>
+
+      <div id="payResumo" style="background:#111;border:1px solid #2a2a2a;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="color:#888">Cliente</span>
+          <span id="payClienteNome" style="color:#e2e8f0;font-weight:500"></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="color:#888">Serviço</span>
+          <span id="payServicoNome" style="color:#e2e8f0"></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="color:#888">Barbeiro</span>
+          <span id="payBarbeiroNome" style="color:#e2e8f0"></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-weight:600;margin-top:6px;padding-top:6px;border-top:1px solid #2a2a2a">
+          <span style="color:#888">Valor do serviço</span>
+          <span id="payValorServico" style="color:#4ade80;font-size:15px"></span>
+        </div>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px">Produtos vendidos (opcional)</div>
+        <div id="payProdutosList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+        <button type="button" onclick="adicionarLinhaProduto()"
+          style="font-size:11px;color:#60a5fa;background:transparent;border:1px dashed #1e3a5f;padding:5px 12px;border-radius:5px;cursor:pointer;width:100%">
+          + Adicionar produto
+        </button>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px">
+          Formas de pagamento <span style="color:#ef4444">*</span>
+        </div>
+        <div id="payFormasList" style="display:flex;flex-direction:column;gap:6px"></div>
+        <button type="button" onclick="adicionarLinhaForma()"
+          style="font-size:11px;color:#60a5fa;background:transparent;border:1px dashed #1e3a5f;padding:5px 12px;border-radius:5px;cursor:pointer;width:100%;margin-top:6px">
+          + Dividir pagamento
+        </button>
+      </div>
+
+      <div id="payTrocoSection" style="display:none;background:#1c1400;border:1px solid #78350f;border-radius:8px;padding:10px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:12px;color:#fbbf24">Pagamento em dinheiro</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <label style="font-size:11px;color:#888">Recebido:</label>
+            <input type="number" id="payValorRecebido" min="0" step="0.01" placeholder="0,00"
+              style="width:90px;padding:5px 8px;background:#242424;border:1px solid #555;border-radius:5px;color:#fff;font-size:13px;text-align:right"
+              oninput="calcularTroco()">
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="font-size:12px;color:#888">Troco a devolver:</span>
+          <span id="payTrocoValor" style="font-size:14px;font-weight:600;color:#fbbf24">R$ 0,00</span>
+        </div>
+      </div>
+
+      <div style="background:#111;border:1px solid #2a2a2a;border-radius:8px;padding:10px;margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:#888;margin-bottom:4px">
+          <span>Total a pagar</span>
+          <span id="payTotalAPagar" style="color:#fff;font-weight:600"></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:#888">
+          <span>Total informado</span>
+          <span id="payTotalInformado" style="font-weight:600"></span>
+        </div>
+      </div>
+
+      <div id="payError" class="modal-error"></div>
+      <div class="kb-modal-footer">
+        <button class="btn-red" id="payConfirmBtn" onclick="confirmarPagamento()">Confirmar pagamento</button>
+        <button class="btn-ghost" onclick="closePayModal()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="kb-overlay" id="fundoOverlay">
+    <div class="kb-modal" style="width:380px;max-width:95vw">
+      <h3>Abrir Caixa — Fundo Inicial</h3>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        Informe o valor em dinheiro que está no caixa antes de começar o dia.
+        Este valor NÃO entra no faturamento.
+      </p>
+      <div class="fg">
+        <label>Fundo inicial (R$)</label>
+        <input type="number" id="fundoValor" min="0" step="0.01" placeholder="70,00"
+          style="font-size:16px;text-align:center">
+      </div>
+      <div class="kb-modal-footer">
+        <button class="btn-red" onclick="confirmarFundo()">Confirmar</button>
+        <button class="btn-ghost" onclick="closeFundoModal()">Pular</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="kb-overlay" id="vendaAvulsaOverlay">
+    <div class="kb-modal" style="width:460px;max-width:95vw">
+      <button class="kb-modal-close" onclick="closeVendaAvulsa()">✕</button>
+      <h3>Venda de Produto</h3>
+      <div class="fg">
+        <label>Produto</label>
+        <select id="vaSelectProduto" onchange="vaAtualizarPreco()">
+          <option value="">Selecione...</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>Barbeiro responsável</label>
+        <select id="vaSelectBarbeiro">
+          ${staffOptsKanban}
+        </select>
+      </div>
+      <div class="fg" style="display:flex;gap:8px;align-items:flex-end">
+        <div style="flex:1">
+          <label>Quantidade</label>
+          <input type="number" id="vaQtd" min="1" value="1" oninput="vaAtualizarPreco()">
+        </div>
+        <div style="flex:1">
+          <label>Total</label>
+          <input type="text" id="vaTotal" readonly style="background:#111;color:#4ade80;font-weight:600">
+        </div>
+      </div>
+      <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.3px;margin:12px 0 6px">
+        Forma de pagamento
+      </div>
+      <div id="vaFormasList" style="display:flex;flex-direction:column;gap:6px"></div>
+      <button type="button" onclick="vaAdicionarForma()"
+        style="font-size:11px;color:#60a5fa;background:transparent;border:1px dashed #1e3a5f;padding:5px 12px;border-radius:5px;cursor:pointer;width:100%;margin-top:6px">
+        + Dividir pagamento
+      </button>
+      <div id="vaTrocoSection" style="display:none;background:#1c1400;border:1px solid #78350f;border-radius:8px;padding:10px;margin-top:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <span style="font-size:12px;color:#fbbf24">Recebido em dinheiro:</span>
+          <input type="number" id="vaValorRecebido" min="0" step="0.01" placeholder="0,00"
+            style="width:90px;padding:5px 8px;background:#242424;border:1px solid #555;border-radius:5px;color:#fff;font-size:13px;text-align:right"
+            oninput="vaCalcTroco()">
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px">
+          <span style="font-size:12px;color:#888">Troco:</span>
+          <span id="vaTrocoValor" style="font-weight:600;color:#fbbf24">R$ 0,00</span>
+        </div>
+      </div>
+      <div id="vaError" class="modal-error" style="margin-top:10px"></div>
+      <div class="kb-modal-footer" style="margin-top:14px">
+        <button class="btn-red" onclick="confirmarVendaAvulsa()">Confirmar venda</button>
+        <button class="btn-ghost" onclick="closeVendaAvulsa()">Cancelar</button>
+      </div>
+    </div>
   </div>`
 
   const script = `
+  window.__PRODUTOS__ = ${JSON.stringify(produtosEstoque.map(p => ({ id: p.id, nome: p.nome, preco: p.preco })))};
+  const RECEPTION_SECRET = '${RECEPTION_SECRET}';
   const KB_SECRET = ${JSON.stringify(RECEPTION_SECRET)};
   const KB_STAFF_NAMES = ${JSON.stringify(Object.fromEntries(staff.filter(s => s.active).map(s => [s.id, s.name])))};
   const MOVIMENTOS = {
@@ -2362,7 +2831,7 @@ receptionRouter.get('/kanban', (req, res) => {
     const barbeiro = (KB_STAFF_NAMES[ag.staff_id] || ag.staff_id).replace(/</g,'&lt;');
     const hora = formatHoraJs(ag.data_hora_inicio);
     const timer = colKey === 'em_atendimento'
-      ? '<span class="timer-badge" data-inicio="'+ag.data_hora_inicio+'">0min</span>' : '';
+      ? '<span class="timer-badge" data-inicio="'+ag.data_hora_inicio+'">'+Math.floor((Date.now()-new Date(ag.data_hora_inicio))/60000)+'min</span>' : '';
     const btnChegou = '<button type="button" class="card-btn card-btn-green" data-action="chegou" data-id="'+ag.id+'">✓ Chegou</button>';
     const btnIniciar = '<button type="button" class="card-btn card-btn-amber" data-action="iniciar" data-id="'+ag.id+'">▶ Iniciar</button>';
     const btnConcluir = '<button type="button" class="card-btn card-btn-green" data-action="concluir" data-id="'+ag.id+'">✓ Concluir</button>';
@@ -2372,7 +2841,12 @@ receptionRouter.get('/kanban', (req, res) => {
     if (colKey === 'confirmado') acoes = btnChegou + btnNoshow + btnCancel;
     else if (colKey === 'chegou') acoes = btnIniciar + btnNoshow;
     else if (colKey === 'em_atendimento') acoes = btnConcluir;
-    return '<div class="kb-card" draggable="true" data-card-id="'+ag.id+'" data-staff-id="'+ag.staff_id+'" data-drag-id="'+ag.id+'" data-drag-status="'+colKey+'">'
+    return '<div class="kb-card" draggable="true" data-card-id="'+ag.id+'" data-staff-id="'+ag.staff_id+'" data-drag-id="'+ag.id+'" data-drag-status="'+colKey+'"'
+      + ' data-ag-id=\"'+ag.id+'\"'
+      + ' data-nome=\"'+String(ag.cliente_nome || '').replace(/</g,'&lt;')+'\"'
+      + ' data-servico=\"'+String(ag.servico_nome || ag.servico_id || '').replace(/</g,'&lt;')+'\"'
+      + ' data-barbeiro=\"'+String(KB_STAFF_NAMES[ag.staff_id] || ag.staff_id).replace(/</g,'&lt;')+'\"'
+      + ' data-preco=\"'+preco+'\">'
       + '<div style="display:flex;justify-content:space-between;align-items:flex-start">'
       + '<span class="card-hora">'+hora+timer+'</span>'
       + '<span class="'+kbBadgeClass(ag.staff_id)+'">'+barbeiro+'</span>'
@@ -2383,8 +2857,391 @@ receptionRouter.get('/kanban', (req, res) => {
       + (acoes ? '<div class="card-actions">'+acoes+'</div>' : '')
       + '</div>';
   }
+
+  // ── Constantes de formas de pagamento ──────────────────────────
+  const FORMAS_PAG = ['pix', 'dinheiro', 'debito', 'credito']
+  const FORMAS_LABEL = { pix: 'PIX', dinheiro: 'Dinheiro', debito: 'Cartão Débito', credito: 'Cartão Crédito' }
+
+  // ── Estado do modal de pagamento ──────────────────────────────
+  let _payAgendamentoId = null
+  let _payValorServico = 0
+
+  function openPayModal(agendamentoId, nome, servico, barbeiro, valor, cardEl, destCol) {
+    _payAgendamentoId = agendamentoId
+    _payValorServico = Number(valor) || 0
+
+    document.getElementById('payClienteNome').textContent = nome
+    document.getElementById('payServicoNome').textContent = servico
+    document.getElementById('payBarbeiroNome').textContent = barbeiro
+    document.getElementById('payValorServico').textContent = 'R$ ' + _payValorServico.toFixed(2).replace('.', ',')
+    document.getElementById('payTotalAPagar').textContent = 'R$ ' + _payValorServico.toFixed(2).replace('.', ',')
+    document.getElementById('payError').classList.remove('on')
+    document.getElementById('payProdutosList').innerHTML = ''
+    document.getElementById('payValorRecebido').value = ''
+    document.getElementById('payTrocoSection').style.display = 'none'
+    document.getElementById('payTrocoValor').textContent = 'R$ 0,00'
+
+    const formasList = document.getElementById('payFormasList')
+    formasList.innerHTML = ''
+    adicionarLinhaForma()
+    atualizarTotalInformado()
+    document.getElementById('payOverlay').classList.add('open')
+  }
+
+  function closePayModal() {
+    document.getElementById('payOverlay').classList.remove('open')
+    _payAgendamentoId = null
+  }
+
+  function adicionarLinhaForma(formaDefault = 'pix', valorDefault = '') {
+    const container = document.getElementById('payFormasList')
+    const isUnica = container.children.length === 0 // primeira linha
+    const div = document.createElement('div')
+    div.style.cssText = 'display:flex;gap:6px;align-items:center'
+    const opts = FORMAS_PAG.map(f => '<option value="'+f+'"'+(f===formaDefault?' selected':'')+'>'+FORMAS_LABEL[f]+'</option>').join('')
+    // Para formas não-dinheiro em linha única: sem campo de valor (usa total automaticamente)
+    const formaInicial = formaDefault || 'pix'
+    const precisaValor = formaInicial === 'dinheiro' || !isUnica
+    const inputStyle = precisaValor
+      ? 'width:110px;padding:7px 8px;background:#242424;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px;text-align:right'
+      : 'width:110px;padding:7px 8px;background:#181818;border:1px solid #222;border-radius:6px;color:#555;font-size:13px;text-align:right'
+    const inputPlaceholder = precisaValor ? 'Valor' : 'Total auto'
+    const inputReadonly = precisaValor ? '' : 'readonly '
+    const inputValue = precisaValor ? (valorDefault || '') : getValorTotalComProdutos().toFixed(2)
+    div.innerHTML =
+      '<select onchange="onFormaChange(this)" style="flex:1;padding:7px 8px;background:#242424;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px">'+opts+'</select>'
+      + '<input type="number" min="0" step="0.01" placeholder="'+inputPlaceholder+'" value="'+inputValue+'"'
+      + ' '+inputReadonly
+      + ' style="'+inputStyle+'"'
+      + ' oninput="atualizarTotalInformado()">'
+      + '<button type="button" onclick="onRemoveForma(this)"'
+      + ' style="background:transparent;border:none;color:#555;cursor:pointer;font-size:16px;padding:0 4px">✕</button>'
+    container.appendChild(div)
+    verificarDinheiro()
+    atualizarTotalInformado()
+  }
+
+  // Chamado quando muda a forma de pagamento em uma linha
+  function onFormaChange(sel) {
+    const linha = sel.parentElement
+    const input = linha.querySelector('input[type=number]')
+    const container = document.getElementById('payFormasList')
+    const isUnica = container.children.length === 1
+    if (sel.value === 'dinheiro' || !isUnica) {
+      // Precisa de valor manual
+      input.readOnly = false
+      input.style.background = '#242424'
+      input.style.border = '1px solid #333'
+      input.style.color = '#fff'
+      input.placeholder = 'Valor'
+      if (input.readOnly === false && !input.value) input.value = ''
+    } else {
+      // Pix/Débito/Crédito único — valor automático
+      input.readOnly = true
+      input.style.background = '#181818'
+      input.style.border = '1px solid #222'
+      input.style.color = '#555'
+      input.placeholder = 'Total auto'
+      input.value = getValorTotalComProdutos().toFixed(2)
+    }
+    verificarDinheiro()
+    atualizarTotalInformado()
+  }
+
+  // Ao remover uma linha: se sobrou só uma e não é dinheiro, volta para auto
+  function onRemoveForma(btn) {
+    btn.parentElement.remove()
+    verificarDinheiro()
+    atualizarTotalInformado()
+    const container = document.getElementById('payFormasList')
+    if (container.children.length === 1) {
+      const linha = container.children[0]
+      const sel = linha.querySelector('select')
+      const input = linha.querySelector('input[type=number]')
+      if (sel && input && sel.value !== 'dinheiro') {
+        input.readOnly = true
+        input.style.background = '#181818'
+        input.style.border = '1px solid #222'
+        input.style.color = '#555'
+        input.value = getValorTotalComProdutos().toFixed(2)
+        atualizarTotalInformado()
+      }
+    }
+  }
+
+  function adicionarLinhaProduto() {
+    const container = document.getElementById('payProdutosList')
+    const div = document.createElement('div')
+    div.style.cssText = 'display:flex;gap:6px;align-items:center'
+    const opts = (window.__PRODUTOS__ || []).map(p =>
+      '<option value="'+p.id+'" data-preco="'+p.preco+'">'+p.nome+' — R$ '+Number(p.preco).toFixed(2).replace('.',',')+'</option>'
+    ).join('')
+    div.innerHTML =
+      '<select style="flex:1;padding:7px 8px;background:#242424;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px" onchange="atualizarTotalComProdutos()">'
+      + '<option value="">Selecione produto...</option>' + opts
+      + '</select>'
+      + '<input type="number" min="1" value="1" placeholder="Qtd"'
+      + ' style="width:60px;padding:7px 8px;background:#242424;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px;text-align:center"'
+      + ' oninput="atualizarTotalComProdutos()">'
+      + '<button type="button" onclick="this.parentElement.remove();atualizarTotalComProdutos()"'
+      + ' style="background:transparent;border:none;color:#555;cursor:pointer;font-size:16px;padding:0 4px">✕</button>'
+    container.appendChild(div)
+  }
+
+  function getValorTotalComProdutos() {
+    let total = _payValorServico
+    const linhas = document.getElementById('payProdutosList').children
+    for (const l of linhas) {
+      const sel = l.querySelector('select')
+      const qtd = parseInt(l.querySelector('input').value) || 0
+      if (sel && sel.value) {
+        const preco = parseFloat(sel.selectedOptions[0]?.dataset?.preco || 0)
+        total += preco * qtd
+      }
+    }
+    return total
+  }
+
+  function atualizarTotalComProdutos() {
+    const total = getValorTotalComProdutos()
+    document.getElementById('payTotalAPagar').textContent = 'R$ ' + total.toFixed(2).replace('.', ',')
+    atualizarTotalInformado()
+  }
+
+  function atualizarTotalInformado() {
+    const linhas = document.getElementById('payFormasList').children
+    let soma = 0
+    for (const l of linhas) {
+      // Conta tanto inputs editáveis quanto readonly (auto)
+      const input = l.querySelector('input[type=number]')
+      soma += parseFloat(input?.value || 0) || 0
+    }
+    const total = getValorTotalComProdutos()
+    // Atualiza inputs readonly quando o total muda (ex: produto adicionado)
+    for (const l of linhas) {
+      const sel = l.querySelector('select')
+      const input = l.querySelector('input[type=number]')
+      const container = document.getElementById('payFormasList')
+      if (input && input.readOnly && container.children.length === 1) {
+        input.value = total.toFixed(2)
+        soma = total // recalcula
+      }
+    }
+    const el = document.getElementById('payTotalInformado')
+    el.textContent = 'R$ ' + soma.toFixed(2).replace('.', ',')
+    el.style.color = Math.abs(soma - total) < 0.01 ? '#4ade80' : '#f87171'
+  }
+
+  function verificarDinheiro() {
+    const linhas = document.getElementById('payFormasList').children
+    let temDinheiro = false
+    for (const l of linhas) {
+      if (l.querySelector('select')?.value === 'dinheiro') { temDinheiro = true; break }
+    }
+    document.getElementById('payTrocoSection').style.display = temDinheiro ? 'block' : 'none'
+    if (!temDinheiro) document.getElementById('payTrocoValor').textContent = 'R$ 0,00'
+  }
+
+  function calcularTroco() {
+    const recebido = parseFloat(document.getElementById('payValorRecebido').value) || 0
+    // Soma todas as parcelas marcadas como dinheiro
+    let parcelaDinheiro = 0
+    const linhas = document.getElementById('payFormasList').children
+    for (const l of linhas) {
+      const sel = l.querySelector('select')
+      if (!sel) continue
+      // Verifica pelo value do select E pelo texto visível selecionado
+      const forma = sel.options[sel.selectedIndex]?.value || sel.value
+      if (forma === 'dinheiro') {
+        // Pega APENAS o input imediato dentro da linha (não o payValorRecebido)
+        const inp = Array.from(l.querySelectorAll('input')).find(i => i !== document.getElementById('payValorRecebido'))
+        parcelaDinheiro += parseFloat(inp?.value || 0) || 0
+      }
+    }
+    // Se não achou parcela de dinheiro mas só tem dinheiro na lista, usa o total a pagar
+    if (parcelaDinheiro === 0) {
+      const todasFormas = Array.from(document.getElementById('payFormasList').children)
+      const somenteUmaForma = todasFormas.length === 1
+      const unicaFormaDinheiro = somenteUmaForma && (todasFormas[0]?.querySelector('select')?.value === 'dinheiro')
+      if (unicaFormaDinheiro) parcelaDinheiro = getValorTotalComProdutos()
+    }
+    const troco = Math.max(0, recebido - parcelaDinheiro)
+    document.getElementById('payTrocoValor').textContent = 'R$ ' + troco.toFixed(2).replace('.', ',')
+  }
+
+  async function confirmarPagamento() {
+    const err = document.getElementById('payError')
+    err.classList.remove('on')
+
+    const formasLinhas = document.getElementById('payFormasList').children
+    const pagamentoItens = []
+    for (const l of formasLinhas) {
+      const forma = l.querySelector('select')?.value
+      const valor = parseFloat(l.querySelector('input[type=number]')?.value || 0) || 0
+      if (forma && valor > 0) pagamentoItens.push({ forma, valor })
+    }
+
+    if (pagamentoItens.length === 0) {
+      err.textContent = 'Informe ao menos uma forma de pagamento com valor.'
+      err.classList.add('on'); return
+    }
+
+    const totalInformado = pagamentoItens.reduce((s, i) => s + i.valor, 0)
+    const totalDevido = getValorTotalComProdutos()
+    if (Math.abs(totalInformado - totalDevido) > 0.01) {
+      err.textContent = 'Total informado (R$ ' + totalInformado.toFixed(2).replace('.',',') + ') difere do valor a pagar (R$ ' + totalDevido.toFixed(2).replace('.',',') + ').'
+      err.classList.add('on'); return
+    }
+
+    const valorRecebidoDinheiro = parseFloat(document.getElementById('payValorRecebido').value) || 0
+    const parcelaDinheiro = pagamentoItens.filter(i => i.forma === 'dinheiro').reduce((s, i) => s + i.valor, 0)
+    const troco = Math.max(0, valorRecebidoDinheiro - parcelaDinheiro)
+
+    const produtoLinhas = document.getElementById('payProdutosList').children
+    const produtosVendidos = []
+    for (const l of produtoLinhas) {
+      const sel = l.querySelector('select')
+      const qtd = parseInt(l.querySelector('input').value) || 0
+      if (sel && sel.value && qtd > 0) {
+        const preco = parseFloat(sel.selectedOptions[0]?.dataset?.preco || 0)
+        produtosVendidos.push({ produto_id: sel.value, quantidade: qtd, valor_unitario: preco })
+      }
+    }
+
+    document.getElementById('payConfirmBtn').disabled = true
+    try {
+      const resp = await fetch('/' + RECEPTION_SECRET + '/caixa/pagar-atendimento', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agendamento_id: _payAgendamentoId, pagamento_itens: pagamentoItens, valor_recebido_dinheiro: valorRecebidoDinheiro, troco, produtos_vendidos: produtosVendidos }),
+      })
+      const data = await resp.json()
+      if (!resp.ok || data.erro) throw new Error(data.erro || 'Erro ao registrar pagamento')
+      closePayModal()
+      location.reload()
+    } catch (e) {
+      err.textContent = e.message
+      err.classList.add('on')
+    } finally {
+      document.getElementById('payConfirmBtn').disabled = false
+    }
+  }
+
+  // ── Fundo inicial ──────────────────────────────────────────────
+  function openFundoModal() {
+    document.getElementById('fundoOverlay').classList.add('open')
+    setTimeout(() => document.getElementById('fundoValor')?.focus(), 100)
+  }
+  function closeFundoModal() { document.getElementById('fundoOverlay').classList.remove('open') }
+  async function confirmarFundo() {
+    const val = parseFloat(document.getElementById('fundoValor').value) || 0
+    await fetch('/' + RECEPTION_SECRET + '/caixa/fundo-inicial', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valor: val }),
+    })
+    closeFundoModal()
+  }
+
+  function openVendaAvulsa() {
+    const sel = document.getElementById('vaSelectProduto')
+    sel.innerHTML = '<option value=\"\">Selecione...</option>'
+    ;(window.__PRODUTOS__ || []).forEach(p => {
+      const o = document.createElement('option')
+      o.value = p.id
+      o.dataset.preco = p.preco
+      o.textContent = p.nome + ' — R$ ' + Number(p.preco).toFixed(2).replace('.',',')
+      sel.appendChild(o)
+    })
+    document.getElementById('vaFormasList').innerHTML = ''
+    vaAdicionarForma()
+    document.getElementById('vaError').classList.remove('on')
+    document.getElementById('vaQtd').value = 1
+    document.getElementById('vaTotal').value = ''
+    document.getElementById('vaTrocoSection').style.display = 'none'
+    document.getElementById('vaValorRecebido').value = ''
+    document.getElementById('vaTrocoValor').textContent = 'R$ 0,00'
+    document.getElementById('vendaAvulsaOverlay').classList.add('open')
+  }
+  function closeVendaAvulsa() { document.getElementById('vendaAvulsaOverlay').classList.remove('open') }
+
+  function vaAdicionarForma(formaDefault = 'pix', valorDefault = '') {
+    const container = document.getElementById('vaFormasList')
+    const div = document.createElement('div')
+    div.style.cssText = 'display:flex;gap:6px;align-items:center'
+    const opts = FORMAS_PAG.map(f => '<option value=\"'+f+'\"'+(f===formaDefault?' selected':'')+'>'+FORMAS_LABEL[f]+'</option>').join('')
+    div.innerHTML =
+      '<select onchange="vaVerificarDinheiro()" style="flex:1;padding:7px 8px;background:#242424;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px">'+opts+'</select>'
+      + '<input type="number" min="0" step="0.01" placeholder="Valor" value="'+valorDefault+'"'
+      + ' style="width:110px;padding:7px 8px;background:#242424;border:1px solid #333;border-radius:6px;color:#fff;font-size:13px;text-align:right">'
+      + '<button type="button" onclick="this.parentElement.remove();vaVerificarDinheiro()"'
+      + ' style="background:transparent;border:none;color:#555;cursor:pointer;font-size:16px;padding:0 4px">✕</button>'
+    container.appendChild(div)
+    vaVerificarDinheiro()
+  }
+  function vaAtualizarPreco() {
+    const sel = document.getElementById('vaSelectProduto')
+    const qtd = parseInt(document.getElementById('vaQtd').value) || 1
+    const preco = parseFloat(sel.selectedOptions[0]?.dataset?.preco || 0)
+    document.getElementById('vaTotal').value = 'R$ ' + (preco * qtd).toFixed(2).replace('.', ',')
+  }
+  function vaVerificarDinheiro() {
+    const linhas = document.getElementById('vaFormasList').children
+    let tem = false
+    for (const l of linhas) if (l.querySelector('select')?.value === 'dinheiro') { tem = true; break }
+    document.getElementById('vaTrocoSection').style.display = tem ? 'block' : 'none'
+  }
+  function vaCalcTroco() {
+    const recebido = parseFloat(document.getElementById('vaValorRecebido').value) || 0
+    const linhas = document.getElementById('vaFormasList').children
+    let parcelaDinheiro = 0
+    for (const l of linhas) {
+      if (l.querySelector('select')?.value === 'dinheiro') {
+        parcelaDinheiro += parseFloat(l.querySelector('input[type=number]')?.value || 0) || 0
+      }
+    }
+    document.getElementById('vaTrocoValor').textContent = 'R$ ' + Math.max(0, recebido - parcelaDinheiro).toFixed(2).replace('.', ',')
+  }
+  async function confirmarVendaAvulsa() {
+    const err = document.getElementById('vaError')
+    err.classList.remove('on')
+    const prodId  = document.getElementById('vaSelectProduto').value
+    const staffId = document.getElementById('vaSelectBarbeiro').value
+    const qtd     = parseInt(document.getElementById('vaQtd').value) || 0
+    if (!prodId)  { err.textContent = 'Selecione um produto.'; err.classList.add('on'); return }
+    if (!staffId) { err.textContent = 'Selecione o barbeiro responsável.'; err.classList.add('on'); return }
+    if (qtd < 1)  { err.textContent = 'Quantidade inválida.'; err.classList.add('on'); return }
+
+    const linhas = document.getElementById('vaFormasList').children
+    const pagamentoItens = []
+    for (const l of linhas) {
+      const forma = l.querySelector('select')?.value
+      const valor = parseFloat(l.querySelector('input[type=number]')?.value || 0) || 0
+      if (forma && valor > 0) pagamentoItens.push({ forma, valor })
+    }
+    if (!pagamentoItens.length) { err.textContent = 'Informe a forma de pagamento.'; err.classList.add('on'); return }
+
+    const recebido = parseFloat(document.getElementById('vaValorRecebido').value) || 0
+    const parcelaDinheiro = pagamentoItens.filter(i => i.forma === 'dinheiro').reduce((s, i) => s + i.valor, 0)
+    const troco = Math.max(0, recebido - parcelaDinheiro)
+
+    try {
+      const resp = await fetch('/' + RECEPTION_SECRET + '/caixa/venda-produto-avulsa', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ produto_id: prodId, quantidade: qtd, staff_id: staffId, pagamento_itens: pagamentoItens, valor_recebido_dinheiro: recebido, troco }),
+      })
+      const data = await resp.json()
+      if (!resp.ok || data.erro) throw new Error(data.erro || 'Erro')
+      closeVendaAvulsa()
+      if (typeof toast === 'function') toast('Venda registrada!', 'success')
+    } catch (e) {
+      err.textContent = e.message
+      err.classList.add('on')
+    }
+  }
   function isByBarber() {
-    return document.getElementById('kbByBarber').style.display !== 'none';
+    const el = document.getElementById('kbByBarber');
+    // Checa tanto o inline style quanto se o kbBoard está oculto
+    return el.style.display === 'flex' || document.getElementById('kbBoard').style.display === 'none';
   }
   function colBodyFor(status, staffId) {
     if (isByBarber() && staffId) {
@@ -2468,7 +3325,7 @@ receptionRouter.get('/kanban', (req, res) => {
         const badge = document.createElement('span');
         badge.className = 'timer-badge';
         badge.dataset.inicio = inicio;
-        badge.textContent = '0min';
+        badge.textContent = '0min'; // Correto: acabou de iniciar
         horaEl.appendChild(badge);
       }
     }
@@ -2504,25 +3361,52 @@ receptionRouter.get('/kanban', (req, res) => {
     if (!(MOVIMENTOS[dragStatus] || []).includes(dest)) return;
     const id = e.dataTransfer.getData('text/plain');
     const card = document.querySelector('[data-card-id="'+id+'"]');
-    const r = await fetch('/'+KB_SECRET+'/kanban/mover', {
-      method:'POST',
-      headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:'id='+encodeURIComponent(id)+'&novo_status='+encodeURIComponent(dest)
-    });
-    const data = await r.json();
-    if (data.ok && card) {
-      const body = colBodyFor(dest, card.dataset.staffId);
-      if (body) {
-        body.appendChild(card);
-        card.dataset.dragStatus = dest;
-        atualizarCardUI(card, dest);
-        atualizarContadores();
-        atualizarTimers();
-      }
-    }
     document.querySelectorAll('.col-drag-over,.col-no-drop').forEach(el => {
       el.classList.remove('col-drag-over','col-no-drop');
     });
+    if (dest === 'concluido' && dragStatus !== 'concluido' && card) {
+      const agId = card.dataset.agId
+      const nome = card.dataset.nome || ''
+      const servico = card.dataset.servico || ''
+      const barbeiro = card.dataset.barbeiro || ''
+      const valor = card.dataset.preco || 0
+      openPayModal(agId, nome, servico, barbeiro, valor, card, dest)
+      return
+    }
+    // Mover card visualmente ANTES da API (otimista)
+    const origemBody = card ? card.parentElement : null;
+    const origemStatus = dragStatus;
+    const destBody = colBodyFor(dest, card ? card.dataset.staffId : null);
+    if (card && destBody) {
+      destBody.appendChild(card);
+      card.dataset.dragStatus = dest;
+      atualizarCardUI(card, dest);
+      atualizarContadores();
+      atualizarTimers();
+    }
+    try {
+      const r = await fetch('/'+KB_SECRET+'/kanban/mover', {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:'id='+encodeURIComponent(id)+'&novo_status='+encodeURIComponent(dest)
+      });
+      const data = await r.json();
+      if (!data.ok && card && origemBody) {
+        // Reverter se a API falhar
+        origemBody.appendChild(card);
+        card.dataset.dragStatus = origemStatus;
+        atualizarCardUI(card, origemStatus);
+        atualizarContadores();
+      }
+    } catch (err) {
+      // Reverter em caso de erro de rede
+      if (card && origemBody) {
+        origemBody.appendChild(card);
+        card.dataset.dragStatus = origemStatus;
+        atualizarCardUI(card, origemStatus);
+        atualizarContadores();
+      }
+    }
   });
   document.addEventListener('click', async e => {
     const btn = e.target.closest('[data-action]');
@@ -2531,20 +3415,50 @@ receptionRouter.get('/kanban', (req, res) => {
     const statusMap = { chegou:'chegou', iniciar:'em_atendimento', concluir:'concluido', noshow:'nao_compareceu', cancelar:'cancelado' };
     const novoStatus = statusMap[action];
     if (!novoStatus) return;
-    const r = await fetch('/'+KB_SECRET+'/kanban/mover', {
-      method:'POST',
-      headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:'id='+encodeURIComponent(id)+'&novo_status='+encodeURIComponent(novoStatus)
-    });
-    const data = await r.json();
-    if (data.ok) {
+    // Interceptar botão "Concluir" — abre modal de pagamento
+    if (novoStatus === 'concluido') {
       const card = document.querySelector('[data-card-id="'+id+'"]');
-      const body = colBodyFor(novoStatus, card?.dataset.staffId);
-      if (card && body) {
-        body.appendChild(card);
-        card.dataset.dragStatus = novoStatus;
+      if (card) {
+        const agId     = card.dataset.agId
+        const nome     = card.dataset.nome    || ''
+        const servico  = card.dataset.servico || ''
+        const barbeiro = card.dataset.barbeiro|| ''
+        const valor    = card.dataset.preco   || 0
+        openPayModal(agId, nome, servico, barbeiro, valor, card, 'concluido')
+        return
+      }
+    }
+    // Mover card visualmente ANTES da API (otimista)
+    const card = document.querySelector('[data-card-id="'+id+'"]');
+    const origemBody = card ? card.parentElement : null;
+    const origemStatus = card ? card.dataset.dragStatus : null;
+    const destBody = colBodyFor(novoStatus, card?.dataset.staffId);
+    if (card && destBody) {
+      destBody.appendChild(card);
+      card.dataset.dragStatus = novoStatus;
+      if (typeof atualizarCardUI === 'function') atualizarCardUI(card, novoStatus);
+      atualizarContadores();
+      atualizarTimers();
+    }
+    try {
+      const r = await fetch('/'+KB_SECRET+'/kanban/mover', {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:'id='+encodeURIComponent(id)+'&novo_status='+encodeURIComponent(novoStatus)
+      });
+      const data = await r.json();
+      if (!data.ok && card && origemBody) {
+        origemBody.appendChild(card);
+        card.dataset.dragStatus = origemStatus;
+        if (typeof atualizarCardUI === 'function') atualizarCardUI(card, origemStatus);
         atualizarContadores();
-        atualizarTimers();
+      }
+    } catch (err) {
+      if (card && origemBody) {
+        origemBody.appendChild(card);
+        card.dataset.dragStatus = origemStatus;
+        if (typeof atualizarCardUI === 'function') atualizarCardUI(card, origemStatus);
+        atualizarContadores();
       }
     }
   });
@@ -2564,6 +3478,7 @@ receptionRouter.get('/kanban', (req, res) => {
     try {
       const r = await fetch('/'+KB_SECRET+'/kanban/dados?data=' + dataAtual());
       const { agendamentos } = await r.json();
+      agendamentos.sort((a, b) => new Date(b.data_hora_inicio) - new Date(a.data_hora_inicio))
       const ids = new Set(agendamentos.map(a => String(a.id)));
       document.querySelectorAll('.kb-card').forEach(card => {
         if (!ids.has(card.dataset.cardId)) card.remove();
@@ -2649,7 +3564,7 @@ receptionRouter.get('/kanban', (req, res) => {
     location.reload();
   });`
 
-  res.send(shell('kanban', 'Kanban', dataTitulo, body, script, RECEPTION_SECRET))
+  res.send(shell('kanban', 'Atendimentos', dataTitulo, body, script, RECEPTION_SECRET))
 })
 
 receptionRouter.get('/kanban/dados', (req, res) => {
@@ -3366,6 +4281,41 @@ router.post('/financeiro/despesas/:id/deletar', express.urlencoded({ extended: f
   deletarDespesa(id)
   log(`Painel: despesa #${id} removida`)
   res.redirect(`/${SECRET}/financeiro/despesas?msg=del`)
+})
+
+router.get('/financeiro/caixa-hoje', (req, res) => {
+  const data = req.query.data || hojeStr()
+  const r = getResumoCaixaDia(data)
+  const dataLabel = new Date(data + 'T12:00:00-03:00').toLocaleDateString('pt-BR', {
+    weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo',
+  })
+
+  const body = `
+  <div class="toolbar" style="margin-bottom:1.25rem">
+    <div class="toolbar-group"><span class="toolbar-label">Data</span><input type="date" id="cxData" value="${escapeHtml(data)}"></div>
+    <button class="btn btn-ghost" onclick="window.location.href='/${SECRET}/financeiro/caixa-hoje?data='+document.getElementById('cxData').value">Ver</button>
+    <a href="/${SECRET}/financeiro/caixa-hoje" class="btn btn-ghost">Hoje</a>
+  </div>
+  <div class="stats" style="margin-bottom:1.25rem">
+    <div class="stat"><div class="stat-icon green">${ic.money}</div><div class="stat-val">${fmtBRL(r.totalBruto)}</div><div class="stat-lbl">Total bruto</div><div class="stat-accent green"></div></div>
+    <div class="stat"><div class="stat-icon amber">${ic.box}</div><div class="stat-val">${fmtBRL(r.totalDespesas)}</div><div class="stat-lbl">Despesas</div></div>
+    <div class="stat"><div class="stat-icon ${r.saldoLiquido>=0?'green':'red'}">${ic.chart}</div><div class="stat-val">${fmtBRL(r.saldoLiquido)}</div><div class="stat-lbl">Saldo líquido</div><div class="stat-accent ${r.saldoLiquido>=0?'green':''}"></div></div>
+    <div class="stat"><div class="stat-icon blue">${ic.cal}</div><div class="stat-val">${r.atendimentos}</div><div class="stat-lbl">Atendimentos</div><div class="stat-accent blue"></div></div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:.65rem;margin-bottom:1.25rem">
+    ${Object.entries(r.totaisPorForma).map(([f, v]) => `<div class="stat" style="padding:.85rem 1rem"><div class="stat-val" style="font-size:1.1rem">${fmtBRL(v)}</div><div class="stat-lbl">${FORMAS_LABEL_SERVER[f] || f}</div></div>`).join('')}
+  </div>
+  <div class="section-header"><span class="section-title">Por barbeiro</span></div>
+  <div class="table-wrap" style="margin-bottom:1.25rem">
+    <table>
+      <thead><tr><th>Barbeiro</th><th>Atendimentos</th><th>Produtos</th><th>Total</th></tr></thead>
+      <tbody>${r.porBarbeiro.length ? r.porBarbeiro.map(b => `<tr><td>${escapeHtml(b.nome)}</td><td class="td-muted">${b.atendimentos}</td><td class="td-muted">${b.produtos}</td><td style="color:var(--green);font-weight:600">${fmtBRL(b.total)}</td></tr>`).join('') : `<tr><td colspan="4"><div class="empty"><div class="empty-text">Sem dados</div></div></td></tr>`}</tbody>
+    </table>
+  </div>
+  ${r.semPagamento.length ? `<div class="alert" style="background:var(--amber-dim);border:1px solid rgba(245,158,11,.3);color:var(--amber);padding:.7rem 1rem;border-radius:var(--radius-sm);font-size:.82rem">${ic.warn} ${r.semPagamento.length} atendimento(s) concluído(s) sem pagamento.</div>` : ''}
+  <p style="font-size:.72rem;color:var(--muted);margin-top:1rem">Status: ${r.caixa.status === 'fechado' ? '🔴 Fechado' : '🟢 Aberto'} · Fundo inicial: ${fmtBRL(r.caixa.fundo_inicial)}${r.caixa.status === 'fechado' ? ` · Fechado em ${formatDataHoraPainel(r.caixa.fechado_em)}` : ''}</p>`
+
+  res.send(shell('financeiro/caixa-hoje', 'Caixa Hoje', dataLabel, body))
 })
 
 // ═══════════════════════════════════════════════════════════════
