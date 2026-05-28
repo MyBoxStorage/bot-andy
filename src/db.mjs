@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+﻿import Database from 'better-sqlite3'
 import bcrypt from 'bcryptjs'
 import fs       from 'fs'
 import path     from 'path'
@@ -314,6 +314,69 @@ CREATE INDEX IF NOT EXISTS idx_despesas_data ON despesas(data);
 CREATE INDEX IF NOT EXISTS idx_sessoes_barbeiro ON sessoes_barbeiro(barbeiro_id);
 CREATE INDEX IF NOT EXISTS idx_sessoes_expires ON sessoes_barbeiro(expires_at);
 `)
+
+  // ── Colunas de pagamento nos agendamentos ──────────────────────
+  // Adiciona forma_pagamento e troco ao agendamento (idempotente)
+  addColumnIfMissing('agendamentos', 'forma_pagamento', 'TEXT')
+  // JSON serializado: [{"forma":"pix","valor":30},{"forma":"dinheiro","valor":20}]
+  addColumnIfMissing('agendamentos', 'pagamento_itens', 'TEXT')
+  // Valor total recebido em dinheiro (para cálculo de troco)
+  addColumnIfMissing('agendamentos', 'valor_recebido_dinheiro', 'REAL')
+  // Troco calculado
+  addColumnIfMissing('agendamentos', 'troco', 'REAL')
+  // Timestamp de quando o pagamento foi registrado
+  addColumnIfMissing('agendamentos', 'pago_em', 'TEXT')
+
+  // ── Vendas de produtos avulsas com pagamento ──────────────────
+  addColumnIfMissing('vendas_produtos', 'forma_pagamento', 'TEXT')
+  addColumnIfMissing('vendas_produtos', 'pagamento_itens', 'TEXT')
+  addColumnIfMissing('vendas_produtos', 'valor_recebido_dinheiro', 'REAL')
+  addColumnIfMissing('vendas_produtos', 'troco', 'REAL')
+  addColumnIfMissing('vendas_produtos', 'pago_em', 'TEXT')
+
+  // ── Tabela: caixas_dia ─────────────────────────────────────────
+  // Um registro por dia. O caixa "abre" automaticamente no primeiro pagamento.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS caixas_dia (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      data            TEXT NOT NULL UNIQUE,
+      fundo_inicial   REAL NOT NULL DEFAULT 0,
+      status          TEXT NOT NULL DEFAULT 'aberto',
+      fechado_em      TEXT,
+      fechado_por     TEXT,
+      obs             TEXT,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_caixas_data ON caixas_dia(data);
+    CREATE INDEX IF NOT EXISTS idx_caixas_status ON caixas_dia(status);
+  `)
+
+  // ── Tabela: caixa_pagamentos ───────────────────────────────────
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS caixa_pagamentos (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      caixa_id          INTEGER NOT NULL,
+      data              TEXT NOT NULL,
+      tipo              TEXT NOT NULL DEFAULT 'servico',
+      agendamento_id    INTEGER,
+      venda_produto_id  INTEGER,
+      staff_id          TEXT NOT NULL,
+      descricao         TEXT NOT NULL,
+      valor_servico     REAL NOT NULL DEFAULT 0,
+      pagamento_itens   TEXT NOT NULL DEFAULT '[]',
+      valor_recebido_dinheiro REAL DEFAULT 0,
+      troco             REAL DEFAULT 0,
+      estornado         INTEGER NOT NULL DEFAULT 0,
+      estornado_em      TEXT,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (caixa_id) REFERENCES caixas_dia(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_caixa_pagamentos_caixa ON caixa_pagamentos(caixa_id);
+    CREATE INDEX IF NOT EXISTS idx_caixa_pagamentos_data ON caixa_pagamentos(data);
+    CREATE INDEX IF NOT EXISTS idx_caixa_pagamentos_agendamento ON caixa_pagamentos(agendamento_id);
+    CREATE INDEX IF NOT EXISTS idx_caixa_pagamentos_staff ON caixa_pagamentos(staff_id);
+  `)
 
   // Placeholders iniciais dos barbeiros (senha provisória: mudar123)
   const senhaPlaceholder = bcrypt.hashSync('mudar123', 10)
@@ -1327,8 +1390,8 @@ export function getAgendamentosParaFeedback() {
     LEFT JOIN clientes c ON c.whatsapp_number = a.whatsapp_number
     WHERE a.status IN ('confirmado', 'concluido')
       AND a.feedback_enviado_at IS NULL
-      AND datetime(a.data_hora_fim, '+4 hours') <= ?
-      AND datetime(a.data_hora_fim, '+5 hours') >= ?
+      AND datetime(a.data_hora_fim, '+1 hours') <= ?
+      AND datetime(a.data_hora_fim, '+6 hours') >= ?
   `).all(agora, agora)
 }
 
@@ -1339,14 +1402,16 @@ export function marcarFeedbackEnviado(agendamentoId) {
 }
 
 export function getAgendamentoAguardandoFeedback(whatsappNumber) {
+  const agora = nowIsoBRT()
+  // Aceita nota mesmo sem o cron ter enviado: qualquer atendimento concluido/confirmado nas ultimas 48h BRT
   return getDb().prepare(`
     SELECT * FROM agendamentos
     WHERE whatsapp_number = ?
-      AND feedback_enviado_at IS NOT NULL
       AND feedback_nota IS NULL
-      AND datetime(feedback_enviado_at, '+24 hours') >= datetime('now')
-    ORDER BY feedback_enviado_at DESC LIMIT 1
-  `).get(whatsappNumber)
+      AND status IN ('concluido', 'confirmado')
+      AND datetime(data_hora_fim, '+48 hours') >= ?
+    ORDER BY data_hora_fim DESC LIMIT 1
+  `).get(whatsappNumber, agora)
 }
 
 export function registrarFeedbackNota(agendamentoId, nota) {
@@ -1695,4 +1760,223 @@ export function marcarNaoCompareceu(agendamentoId) {
     registrarNoShow(ag.whatsapp_number, agendamentoId)
   }
   return r.changes > 0
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MÓDULO DE CAIXA DIÁRIO
+// ═══════════════════════════════════════════════════════════════
+
+export function getOuCriarCaixaDia(data) {
+  const db = getDb()
+  let caixa = db.prepare(`SELECT * FROM caixas_dia WHERE data = ?`).get(data)
+  if (!caixa) {
+    db.prepare(`INSERT OR IGNORE INTO caixas_dia (data, fundo_inicial, status) VALUES (?, 0, 'aberto')`).run(data)
+    caixa = db.prepare(`SELECT * FROM caixas_dia WHERE data = ?`).get(data)
+  }
+  return caixa
+}
+
+export function definirFundoInicial(data, fundoInicial) {
+  const db = getDb()
+  getOuCriarCaixaDia(data)
+  db.prepare(`
+    UPDATE caixas_dia SET fundo_inicial = ?, updated_at = datetime('now')
+    WHERE data = ?
+  `).run(Number(fundoInicial) || 0, data)
+  return db.prepare(`SELECT * FROM caixas_dia WHERE data = ?`).get(data)
+}
+
+export function registrarPagamentoCaixa({
+  data, tipo, agendamento_id, venda_produto_id, staff_id,
+  descricao, valor_servico, pagamento_itens,
+  valor_recebido_dinheiro, troco,
+}) {
+  const db = getDb()
+  const caixa = getOuCriarCaixaDia(data)
+  const pagItensJson = JSON.stringify(pagamento_itens || [])
+  const formaSimples = pagamento_itens?.length === 1 ? pagamento_itens[0].forma : 'misto'
+
+  const r = db.prepare(`
+    INSERT INTO caixa_pagamentos
+      (caixa_id, data, tipo, agendamento_id, venda_produto_id, staff_id, descricao,
+       valor_servico, pagamento_itens, valor_recebido_dinheiro, troco)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    caixa.id, data, tipo,
+    agendamento_id ?? null, venda_produto_id ?? null,
+    staff_id, descricao,
+    Number(valor_servico) || 0, pagItensJson,
+    Number(valor_recebido_dinheiro) || 0, Number(troco) || 0,
+  )
+
+  if (agendamento_id) {
+    db.prepare(`
+      UPDATE agendamentos
+      SET forma_pagamento = ?, pagamento_itens = ?,
+          valor_recebido_dinheiro = ?, troco = ?,
+          pago_em = datetime('now'), updated_at = datetime('now')
+      WHERE id = ?
+    `).run(formaSimples, pagItensJson, Number(valor_recebido_dinheiro) || 0, Number(troco) || 0, agendamento_id)
+  }
+
+  if (venda_produto_id) {
+    db.prepare(`
+      UPDATE vendas_produtos
+      SET forma_pagamento = ?, pagamento_itens = ?,
+          valor_recebido_dinheiro = ?, troco = ?, pago_em = datetime('now')
+      WHERE id = ?
+    `).run(formaSimples, pagItensJson, Number(valor_recebido_dinheiro) || 0, Number(troco) || 0, venda_produto_id)
+  }
+
+  return r.lastInsertRowid
+}
+
+export function estornarPagamentoCaixa(caixaPagamentoId) {
+  const db = getDb()
+  const cp = db.prepare(`SELECT * FROM caixa_pagamentos WHERE id = ?`).get(caixaPagamentoId)
+  if (!cp || cp.estornado) return false
+
+  db.prepare(`UPDATE caixa_pagamentos SET estornado = 1, estornado_em = datetime('now') WHERE id = ?`).run(caixaPagamentoId)
+
+  if (cp.agendamento_id) {
+    db.prepare(`
+      UPDATE agendamentos
+      SET forma_pagamento = NULL, pagamento_itens = NULL,
+          valor_recebido_dinheiro = NULL, troco = NULL, pago_em = NULL,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(cp.agendamento_id)
+  }
+
+  return true
+}
+
+export function getResumoCaixaDia(data) {
+  const db = getDb()
+  const caixa = getOuCriarCaixaDia(data)
+
+  const pagamentos = db.prepare(`
+    SELECT cp.*, b.nome AS barbeiro_nome
+    FROM caixa_pagamentos cp
+    LEFT JOIN barbeiros b ON b.id = cp.staff_id
+    WHERE cp.data = ? AND cp.estornado = 0
+    ORDER BY cp.created_at ASC
+  `).all(data)
+
+  // Estornos do dia (para rastreabilidade no relatório)
+  const estornos = db.prepare(`
+    SELECT cp.*, b.nome AS barbeiro_nome
+    FROM caixa_pagamentos cp
+    LEFT JOIN barbeiros b ON b.id = cp.staff_id
+    WHERE cp.data = ? AND cp.estornado = 1
+    ORDER BY cp.estornado_em ASC
+  `).all(data)
+  const totalEstornado = estornos.reduce((s, e) => s + Number(e.valor_servico) || 0, 0)
+
+  const totaisPorForma = { pix: 0, dinheiro: 0, debito: 0, credito: 0 }
+  let totalBruto = 0
+  for (const p of pagamentos) {
+    totalBruto += Number(p.valor_servico) || 0
+    try {
+      const itens = JSON.parse(p.pagamento_itens || '[]')
+      for (const item of itens) {
+        if (totaisPorForma[item.forma] !== undefined) {
+          totaisPorForma[item.forma] += Number(item.valor) || 0
+        }
+      }
+    } catch {}
+  }
+
+  const porBarbeiro = {}
+  for (const p of pagamentos) {
+    if (!porBarbeiro[p.staff_id]) {
+      porBarbeiro[p.staff_id] = { nome: p.barbeiro_nome || p.staff_id, total: 0, atendimentos: 0, produtos: 0 }
+    }
+    porBarbeiro[p.staff_id].total += Number(p.valor_servico) || 0
+    if (p.tipo === 'servico') porBarbeiro[p.staff_id].atendimentos += 1
+    if (p.tipo === 'produto') porBarbeiro[p.staff_id].produtos += 1
+  }
+
+  const despesas = db.prepare(`SELECT * FROM despesas WHERE date(data) = date(?) ORDER BY created_at ASC`).all(data)
+  const totalDespesas = despesas.reduce((s, d) => s + Number(d.valor), 0)
+
+  const semPagamento = db.prepare(`
+    SELECT a.id, a.cliente_nome, a.staff_id, a.servico_id, a.data_hora_inicio,
+           s.nome AS servico_nome, s.preco AS servico_preco
+    FROM agendamentos a
+    LEFT JOIN servicos s ON s.id = a.servico_id
+    WHERE date(a.data_hora_inicio) = date(?)
+      AND a.status = 'concluido'
+      AND (a.pago_em IS NULL OR a.forma_pagamento IS NULL)
+    ORDER BY a.data_hora_inicio ASC
+  `).all(data)
+
+  return {
+    caixa,
+    pagamentos,
+    estornos,
+    totalEstornado,
+    totaisPorForma,
+    totalBruto,
+    totalDespesas,
+    saldoLiquido: totalBruto - totalDespesas,
+    porBarbeiro: Object.entries(porBarbeiro).map(([id, v]) => ({ staff_id: id, ...v })),
+    despesas,
+    semPagamento,
+    atendimentos: pagamentos.filter(p => p.tipo === 'servico').length,
+    vendasProdutos: pagamentos.filter(p => p.tipo === 'produto').length,
+  }
+}
+
+export function fecharCaixaDia(data, fechadoPor = 'recepcao', obs = null, forcar = false) {
+  const db = getDb()
+  const resumo = getResumoCaixaDia(data)
+
+  if (!forcar && resumo.semPagamento.length > 0) {
+    return {
+      erro: `Há ${resumo.semPagamento.length} atendimento(s) concluído(s) sem pagamento registrado.`,
+      semPagamento: resumo.semPagamento,
+    }
+  }
+
+  db.prepare(`
+    UPDATE caixas_dia
+    SET status = 'fechado', fechado_em = datetime('now'), fechado_por = ?, obs = ?, updated_at = datetime('now')
+    WHERE data = ?
+  `).run(fechadoPor, obs ?? null, data)
+
+  return { ok: true, resumo }
+}
+
+export function reabrirCaixaDia(data) {
+  const db = getDb()
+  db.prepare(`
+    UPDATE caixas_dia
+    SET status = 'aberto', fechado_em = NULL, fechado_por = NULL, updated_at = datetime('now')
+    WHERE data = ?
+  `).run(data)
+  return db.prepare(`SELECT * FROM caixas_dia WHERE data = ?`).get(data)
+}
+
+export function listarCaixas({ dataInicio, dataFim, status, limit = 30 } = {}) {
+  const db = getDb()
+  let q = `SELECT * FROM caixas_dia WHERE 1=1`
+  const p = []
+  if (dataInicio) { q += ` AND date(data) >= date(?)`; p.push(dataInicio) }
+  if (dataFim)    { q += ` AND date(data) <= date(?)`; p.push(dataFim) }
+  if (status)     { q += ` AND status = ?`; p.push(status) }
+  q += ` ORDER BY data DESC LIMIT ?`
+  p.push(limit)
+  return db.prepare(q).all(...p)
+}
+
+export function registrarVendaProdutoAvulsa({ whatsapp_number, produto_id, quantidade, valor_unitario }) {
+  const db = getDb()
+  db.prepare(`UPDATE produtos SET estoque = MAX(0, estoque - ?), updated_at = datetime('now') WHERE id = ?`)
+    .run(Number(quantidade) || 1, produto_id)
+  const r = db.prepare(`
+    INSERT INTO vendas_produtos (agendamento_id, whatsapp_number, produto_id, quantidade, valor_unitario)
+    VALUES (NULL, ?, ?, ?, ?)
+  `).run(whatsapp_number || 'avulso', produto_id, Number(quantidade) || 1, Number(valor_unitario))
+  return r.lastInsertRowid
 }
