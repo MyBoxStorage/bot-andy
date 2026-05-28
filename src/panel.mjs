@@ -2456,6 +2456,46 @@ receptionRouter.get('/kanban', (req, res) => {
       col.classList.remove('col-drag-over');
     }
   });
+  function atualizarCardUI(card, dest) {
+    const id = card.dataset.cardId;
+    // timer badge
+    const horaEl = card.querySelector('.card-hora');
+    if (horaEl) {
+      horaEl.querySelectorAll('.timer-badge').forEach(t => t.remove());
+      if (dest === 'em_atendimento') {
+        const inicio = new Date().toISOString();
+        card.dataset.inicio = inicio;
+        const badge = document.createElement('span');
+        badge.className = 'timer-badge';
+        badge.dataset.inicio = inicio;
+        badge.textContent = '0min';
+        horaEl.appendChild(badge);
+      }
+    }
+    // botões de ação
+    card.querySelectorAll('.card-actions').forEach(el => el.remove());
+    let acoes = '';
+    if (dest === 'confirmado') {
+      acoes = '<button type="button" class="card-btn card-btn-green" data-action="chegou" data-id="'+id+'">✓ Chegou</button>'
+            + '<button type="button" class="card-btn card-btn-red" data-action="noshow" data-id="'+id+'">✗ No-show</button>'
+            + '<button type="button" class="card-btn card-btn-red" data-action="cancelar" data-id="'+id+'">🗑</button>';
+    } else if (dest === 'chegou') {
+      acoes = '<button type="button" class="card-btn card-btn-amber" data-action="iniciar" data-id="'+id+'">▶ Iniciar</button>'
+            + '<button type="button" class="card-btn card-btn-red" data-action="noshow" data-id="'+id+'">✗ No-show</button>';
+    } else if (dest === 'em_atendimento') {
+      acoes = '<button type="button" class="card-btn card-btn-green" data-action="concluir" data-id="'+id+'">✓ Concluir</button>';
+    }
+    if (acoes) {
+      const div = document.createElement('div');
+      div.className = 'card-actions';
+      div.innerHTML = acoes;
+      card.appendChild(div);
+    }
+    // remover placeholder "Arraste aqui" se existir na coluna de destino
+    const body = card.parentElement;
+    if (body) body.querySelectorAll('.kb-col-empty').forEach(el => el.remove());
+  }
+
   document.addEventListener('drop', async e => {
     const col = e.target.closest('.kb-col');
     if (!col || !dragStatus) return;
@@ -2475,6 +2515,7 @@ receptionRouter.get('/kanban', (req, res) => {
       if (body) {
         body.appendChild(card);
         card.dataset.dragStatus = dest;
+        atualizarCardUI(card, dest);
         atualizarContadores();
         atualizarTimers();
       }
