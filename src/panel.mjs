@@ -382,6 +382,10 @@ input,select,textarea{
 input:focus,select:focus,textarea:focus{border-color:var(--red);box-shadow:0 0 0 3px var(--red-dim)}
 input[type=number]{text-align:center;padding:.5rem .5rem}
 input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.6);opacity:.8;cursor:pointer}
+input[type=date]::-webkit-datetime-edit-fields-wrapper{direction:ltr}
+input[type=date]::-webkit-datetime-edit-day-field,
+input[type=date]::-webkit-datetime-edit-month-field,
+input[type=date]::-webkit-datetime-edit-year-field{color:var(--text1)}
 select option{background:var(--elevated)}
 
 /* ── BUTTONS ── */
@@ -1608,7 +1612,7 @@ function agendaHandler(secret) {
     <div class="toolbar">
       <div class="toolbar-group">
         <span class="toolbar-label">Data</span>
-        <input type="date" id="dataInput" value="${data}">
+        <input type="date" lang="pt-BR" id="dataInput" value="${data}">
       </div>
       <div class="toolbar-group">
         <span class="toolbar-label">Barbeiro</span>
@@ -1716,7 +1720,7 @@ function editarAgendaGetHandler(secret) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Data *</label>
-            <input type="date" name="data" value="${escapeHtml(dataAg)}" required>
+            <input type="date" lang="pt-BR" name="data" value="${escapeHtml(dataAg)}" required>
           </div>
           <div class="form-group">
             <label class="form-label">Horário *</label>
@@ -1861,8 +1865,8 @@ receptionRouter.get('/despesas', (req, res) => {
   ${alert}
   <p class="form-hint" style="margin-bottom:1rem">${ic.cal} Período padrão: semana corrente (segunda a domingo, até hoje). Ajuste as datas para ver outro intervalo.</p>
   <div class="toolbar" style="flex-wrap:wrap;margin-bottom:1rem">
-    <div class="toolbar-group"><span class="toolbar-label">De</span><input type="date" name="de" form="filtDespRec" value="${escapeHtml(de)}"></div>
-    <div class="toolbar-group"><span class="toolbar-label">Até</span><input type="date" name="ate" form="filtDespRec" value="${escapeHtml(ate)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">De</span><input type="date" lang="pt-BR" name="de" form="filtDespRec" value="${escapeHtml(de)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">Até</span><input type="date" lang="pt-BR" name="ate" form="filtDespRec" value="${escapeHtml(ate)}"></div>
     <div class="toolbar-group"><span class="toolbar-label">Categoria</span><select name="cat" form="filtDespRec">${optsCat}</select></div>
     <form id="filtDespRec" method="GET" action="/${RECEPTION_SECRET}/despesas"><button type="submit" class="btn btn-primary btn-sm">${ic.cal} Filtrar</button></form>
   </div>
@@ -1877,7 +1881,7 @@ receptionRouter.get('/despesas', (req, res) => {
       <div class="form-group" style="margin:0;flex:2;min-width:160px"><label class="form-label">Descrição</label><input type="text" name="descricao" required placeholder="Ex.: Compra de material"></div>
       <div class="form-group" style="margin:0;width:120px"><label class="form-label">Valor</label><input type="text" inputmode="decimal" name="valor" required placeholder="150,00"></div>
       <div class="form-group" style="margin:0"><label class="form-label">Categoria</label><select name="categoria">${optsCatNova}</select></div>
-      <div class="form-group" style="margin:0"><label class="form-label">Data</label><input type="date" name="data" value="${escapeHtml(hojeStr())}" required></div>
+      <div class="form-group" style="margin:0"><label class="form-label">Data</label><input type="date" lang="pt-BR" name="data" value="${escapeHtml(hojeStr())}" required></div>
       <div class="form-group" style="margin:0;flex:1;min-width:140px"><label class="form-label">Obs.</label><input type="text" name="obs" placeholder="Opcional"></div>
       <button type="submit" class="btn btn-primary">${ic.check} Salvar despesa</button>
     </form>
@@ -2118,7 +2122,7 @@ receptionRouter.get('/caixa', (req, res) => {
   <div class="toolbar" style="margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
     <div style="display:flex;align-items:center;gap:.5rem">
       <span class="toolbar-label" style="font-size:.75rem;color:var(--muted)">Data do caixa:</span>
-      <input type="date" id="caixaDataNav" value="${data}" style="padding:5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text1);font-size:.8rem"
+      <input type="date" lang="pt-BR" id="caixaDataNav" value="${data}" style="padding:5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text1);font-size:.8rem"
         onchange="window.location.href='/${RECEPTION_SECRET}/caixa?data='+this.value">
     </div>
     ${data !== hojeStr() ? `<span style="font-size:.72rem;background:rgba(245,158,11,.15);color:var(--amber);padding:.2rem .65rem;border-radius:20px;border:1px solid rgba(245,158,11,.3)">${ic.warn} Caixa retroativo — ${dataLabel}</span>` : ''}
@@ -2197,8 +2201,8 @@ receptionRouter.get('/caixa/historico', (req, res) => {
 
   const body = `
   <div class="toolbar" style="margin-bottom:1rem">
-    <div class="toolbar-group"><span class="toolbar-label">De</span><input type="date" id="histDe" value="${escapeHtml(de)}"></div>
-    <div class="toolbar-group"><span class="toolbar-label">Até</span><input type="date" id="histAte" value="${escapeHtml(ate)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">De</span><input type="date" lang="pt-BR" id="histDe" value="${escapeHtml(de)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">Até</span><input type="date" lang="pt-BR" id="histAte" value="${escapeHtml(ate)}"></div>
     <button class="btn btn-ghost" onclick="filtrar()">Filtrar</button>
   </div>
   <div class="table-wrap">
@@ -2226,7 +2230,7 @@ function bloquearGetHandler(secret) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Data</label>
-            <input type="date" name="data" value="${data}" required>
+            <input type="date" lang="pt-BR" name="data" value="${data}" required>
           </div>
           <div class="form-group">
             <label class="form-label">Barbeiro</label>
@@ -2322,7 +2326,7 @@ function agendarManualGetHandler(secret) {
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Data *</label>
-            <input type="date" name="data" value="${data}" required>
+            <input type="date" lang="pt-BR" name="data" value="${data}" required>
           </div>
           <div class="form-group">
             <label class="form-label">Horário *</label>
@@ -2616,7 +2620,7 @@ receptionRouter.get('/kanban', (req, res) => {
     <div class="kb-header">
       <h2>${escapeHtml(tituloDia)}</h2>
       <label style="font-size:11px;color:#666;display:flex;flex-direction:column;gap:3px">Data
-        <input type="date" id="kbData" value="${escapeHtml(data)}">
+        <input type="date" lang="pt-BR" id="kbData" value="${escapeHtml(data)}">
       </label>
       <button type="button" class="btn btn-primary btn-sm" id="btnNovoAg">${ic.plus} Novo agendamento</button>
       <div class="kb-toggle">
@@ -2645,7 +2649,7 @@ receptionRouter.get('/kanban', (req, res) => {
       <div class="fg"><label>WhatsApp</label><input type="tel" id="mWhats" placeholder="55XXXXXXXXXXX"></div>
       <div class="fg"><label>Serviço *</label><select id="mServico" required><option value="">Selecione...</option>${servicoOpts}</select></div>
       <div class="fg"><label>Barbeiro *</label><select id="mStaff" required><option value="">Selecione...</option>${staffOpts}</select></div>
-      <div class="fg"><label>Data *</label><input type="date" id="mData" value="${escapeHtml(data)}" required></div>
+      <div class="fg"><label>Data *</label><input type="date" lang="pt-BR" id="mData" value="${escapeHtml(data)}" required></div>
       <div class="fg"><label>Horário *</label><select id="mHorario" disabled><option value="">Selecione barbeiro, data e serviço</option></select></div>
       <div class="modal-error" id="modalErr"></div>
       <div class="kb-modal-footer">
@@ -3691,7 +3695,7 @@ router.get('/faturamento', (req, res) => {
     <div class="toolbar" style="margin-bottom:1rem">
       <div class="toolbar-group">
         <span class="toolbar-label">Data base</span>
-        <input type="date" id="dataInput" value="${data}">
+        <input type="date" lang="pt-BR" id="dataInput" value="${data}">
       </div>
       <button class="btn btn-ghost" onclick="window.location.href='/${SECRET}/faturamento?data='+document.getElementById('dataInput').value+'&periodo=${periodo}&aba=barbeiros'">Ver</button>
     </div>
@@ -3762,7 +3766,7 @@ router.get('/faturamento', (req, res) => {
   <div class="toolbar" style="margin-bottom:1.25rem">
     <div class="toolbar-group">
       <span class="toolbar-label">Data base</span>
-      <input type="date" id="dataInput" value="${data}">
+      <input type="date" lang="pt-BR" id="dataInput" value="${data}">
     </div>
     <button class="btn btn-ghost" onclick="window.location.href='/${SECRET}/faturamento?data='+document.getElementById('dataInput').value+'&periodo=${periodo}&aba=geral'">Ver</button>
   </div>
@@ -3977,8 +3981,8 @@ router.get('/financeiro/comissoes', (req, res) => {
         <form method="POST" action="/${SECRET}/financeiro/fechamentos/criar">
           <input type="hidden" name="barbeiro_id" value="${escapeHtml(b.id)}">
           <div class="fin-dlg-bd">
-            <div class="form-group" style="margin:0"><label class="form-label">Início do período</label><input type="date" name="periodo_inicio" value="${escapeHtml(de)}" required></div>
-            <div class="form-group" style="margin:0"><label class="form-label">Fim do período</label><input type="date" name="periodo_fim" value="${escapeHtml(ate)}" required></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Início do período</label><input type="date" lang="pt-BR" name="periodo_inicio" value="${escapeHtml(de)}" required></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Fim do período</label><input type="date" lang="pt-BR" name="periodo_fim" value="${escapeHtml(ate)}" required></div>
             <p class="form-hint" style="margin:0">${ic.warn} O sistema soma apenas atendimentos concluídos no intervalo e vincula ao fechamento.</p>
           </div>
           <div class="fin-dlg-ft">
@@ -4022,8 +4026,8 @@ router.get('/financeiro/comissoes', (req, res) => {
   const body = `
   ${alert}
   <div class="toolbar" style="margin-bottom:1rem">
-    <div class="toolbar-group"><span class="toolbar-label">De</span><input type="date" id="cfDe" value="${escapeHtml(de)}"></div>
-    <div class="toolbar-group"><span class="toolbar-label">Até</span><input type="date" id="cfAte" value="${escapeHtml(ate)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">De</span><input type="date" lang="pt-BR" id="cfDe" value="${escapeHtml(de)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">Até</span><input type="date" lang="pt-BR" id="cfAte" value="${escapeHtml(ate)}"></div>
     <button type="button" class="btn btn-ghost" onclick="window.location.href='/${SECRET}/financeiro/comissoes?de='+document.getElementById('cfDe').value+'&ate='+document.getElementById('cfAte').value">${ic.cal} Ver período</button>
   </div>
 
@@ -4231,8 +4235,8 @@ router.get('/financeiro/despesas', (req, res) => {
   const body = `
   ${alert}
   <div class="toolbar" style="flex-wrap:wrap;margin-bottom:1rem">
-    <div class="toolbar-group"><span class="toolbar-label">De</span><input type="date" name="de" form="filtDesp" value="${escapeHtml(de)}"></div>
-    <div class="toolbar-group"><span class="toolbar-label">Até</span><input type="date" name="ate" form="filtDesp" value="${escapeHtml(ate)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">De</span><input type="date" lang="pt-BR" name="de" form="filtDesp" value="${escapeHtml(de)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">Até</span><input type="date" lang="pt-BR" name="ate" form="filtDesp" value="${escapeHtml(ate)}"></div>
     <div class="toolbar-group"><span class="toolbar-label">Categoria</span><select name="cat" form="filtDesp">${optsCat}</select></div>
     <form id="filtDesp" method="GET" action="/${SECRET}/financeiro/despesas"><button type="submit" class="btn btn-primary btn-sm">${ic.cal} Filtrar</button></form>
   </div>
@@ -4247,7 +4251,7 @@ router.get('/financeiro/despesas', (req, res) => {
       <div class="form-group" style="margin:0;flex:2;min-width:160px"><label class="form-label">Descrição</label><input type="text" name="descricao" required placeholder="Ex.: Aluguel loja Maio"></div>
       <div class="form-group" style="margin:0;width:120px"><label class="form-label">Valor</label><input type="text" inputmode="decimal" name="valor" required placeholder="1500,00"></div>
       <div class="form-group" style="margin:0"><label class="form-label">Categoria</label><select name="categoria">${optsCatNova}</select></div>
-      <div class="form-group" style="margin:0"><label class="form-label">Data</label><input type="date" name="data" value="${escapeHtml(hojeStr())}" required></div>
+      <div class="form-group" style="margin:0"><label class="form-label">Data</label><input type="date" lang="pt-BR" name="data" value="${escapeHtml(hojeStr())}" required></div>
       <div class="form-group" style="margin:0;flex:1;min-width:140px"><label class="form-label">Obs.</label><input type="text" name="obs" placeholder="Opcional"></div>
       <button type="submit" class="btn btn-primary">${ic.check} Salvar despesa</button>
     </form>
@@ -4301,7 +4305,7 @@ router.get('/financeiro/caixa-hoje', (req, res) => {
 
   const body = `
   <div class="toolbar" style="margin-bottom:1.25rem">
-    <div class="toolbar-group"><span class="toolbar-label">Data</span><input type="date" id="cxData" value="${escapeHtml(data)}"></div>
+    <div class="toolbar-group"><span class="toolbar-label">Data</span><input type="date" lang="pt-BR" id="cxData" value="${escapeHtml(data)}"></div>
     <button class="btn btn-ghost" onclick="window.location.href='/${SECRET}/financeiro/caixa-hoje?data='+document.getElementById('cxData').value">Ver</button>
     <a href="/${SECRET}/financeiro/caixa-hoje" class="btn btn-ghost">Hoje</a>
   </div>
@@ -5142,7 +5146,7 @@ barbeiroRouter.get('/agenda', (req, res) => {
     <h1 class="barber-page-title">Minha agenda</h1>
     <div class="bb-toolbar">
       <label class="form-label" for="agendaDate">Data</label>
-      <input type="date" id="agendaDate" value="${escapeHtml(data)}" aria-label="Selecionar data">
+      <input type="date" lang="pt-BR" id="agendaDate" value="${escapeHtml(data)}" aria-label="Selecionar data">
       <div class="bb-pills" role="group" aria-label="Filtrar por status">${pills}</div>
     </div>
     ${renderBarbeiroAgendaLista(ags, 'Nenhum agendamento neste dia')}
@@ -5175,11 +5179,11 @@ barbeiroRouter.get('/financeiro', (req, res) => {
       <div class="bb-date-range bb-toolbar">
         <div class="form-group" style="margin:0">
           <label class="form-label" for="finDe">De</label>
-          <input type="date" id="finDe" x-model="de" @change="periodoAtivo='manual'; carregar()">
+          <input type="date" lang="pt-BR" id="finDe" x-model="de" @change="periodoAtivo='manual'; carregar()">
         </div>
         <div class="form-group" style="margin:0">
           <label class="form-label" for="finAte">Até</label>
-          <input type="date" id="finAte" x-model="ate" @change="periodoAtivo='manual'; carregar()">
+          <input type="date" lang="pt-BR" id="finAte" x-model="ate" @change="periodoAtivo='manual'; carregar()">
         </div>
       </div>
 
