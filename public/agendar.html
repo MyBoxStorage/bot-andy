@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -23,7 +23,8 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/config.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
@@ -46,14 +47,50 @@
   </script>
   <style>
     [x-cloak] { display: none !important; }
-    body { font-family: 'Inter', system-ui, sans-serif; }
-    input:focus { border-color: #cc1f1f !important; outline: none; box-shadow: 0 0 0 3px rgba(204,31,31,0.15); }
+    :root {
+      --accent: #E11D2F;
+      --accent-hover: #C41526;
+      --bg-base: #0C0C0C;
+      --bg-surface-1: #141414;
+      --bg-surface-2: #1C1C1C;
+      --text-primary: #F5F5F5;
+      --text-secondary: #E8E2D9;
+      --text-muted: #7A7A7A;
+      --text-faint: #4A4A4A;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --radius-xl: 10px;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background-color: #0C0C0C;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+      background-repeat: repeat;
+      background-size: 200px 200px;
+    }
+
+    input:focus { border-color: #E11D2F !important; outline: none; box-shadow: 0 0 0 3px rgba(225, 29, 47, 0.12); }
+
+    input[type="text"], input[type="tel"] {
+      background: #141414;
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 6px;
+      padding: 14px 16px;
+      min-height: 48px;
+      width: 100%;
+      color: #F5F5F5;
+      font-size: 15px;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
 
     /* ── Barber Pole ── */
     .barber-pole {
       height: 3px; width: 100%;
-      background: repeating-linear-gradient(90deg, #cc1f1f 0 16px, #ffffff 16px 32px, #2563eb 32px 48px);
-      opacity: 0.4;
+      background: repeating-linear-gradient(90deg, #E11D2F 0 16px, #ffffff 16px 32px, #2563eb 32px 48px);
+      opacity: 0.5;
     }
 
     /* ── Header redesign ── */
@@ -63,18 +100,48 @@
     }
     .header-logo { height: 40px; width: auto; object-fit: contain; display: block; }
     .header-sub {
-      margin-top: 6px; font-size: 10px; letter-spacing: 0.18em; color: #888;
-      font-weight: 500; text-transform: uppercase;
+      font-family: 'Inter', sans-serif;
+      font-size: 9px;
+      letter-spacing: 0.22em;
+      color: #4A4A4A;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-top: 4px;
     }
     .header-progress { display: flex; gap: 6px; padding: 0 20px 10px; }
-    .header-progress-seg { flex: 1; height: 3px; border-radius: 2px; transition: background .25s; }
+    .header-progress-seg { flex: 1; height: 2px; border-radius: 0px; transition: background .3s ease; }
 
     /* ── Chips ── */
-    .chip { flex-shrink: 0; padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; cursor: pointer; border: 1px solid transparent; transition: all .15s; }
-    .chip-active { background: #ffffff; color: #000; border-color: #ffffff; }
-    .chip-inactive { background: transparent; color: #888; border-color: rgba(255,255,255,0.12); }
+    .chip {
+      flex-shrink: 0;
+      padding: 7px 14px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all .15s;
+    }
+    .chip-active { background: #E11D2F; color: #ffffff; border-color: #E11D2F; }
+    .chip-inactive { background: transparent; color: #7A7A7A; border-color: rgba(255,255,255,0.10); }
+    .chip-inactive:hover { border-color: rgba(255,255,255,0.25); color: #F5F5F5; }
 
     /* ── Cards de serviço ── */
+    .svc-card {
+      width: 100%;
+      text-align: left;
+      background: #141414;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 72px;
+      transition: border-color .15s, background .15s, transform .1s;
+      display: block;
+    }
+    .svc-card:hover { border-color: rgba(255,255,255,0.18); background: #1C1C1C; }
+    .svc-card:active { transform: scale(0.985); }
     .svc-card-row { display: flex; align-items: center; justify-content: space-between; }
     .svc-chevron { color: #555; flex-shrink: 0; }
 
@@ -82,18 +149,18 @@
     .step3-summary {
       margin: 0 20px 18px;
       padding: 12px 14px;
-      background: rgba(255,255,255,0.03);
+      background: #141414;
       border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 10px;
+      border-radius: 8px;
       display: flex; align-items: center; justify-content: space-between;
     }
-    .step3-summary-label { font-size: 11px; letter-spacing: 0.08em; color: #666; text-transform: uppercase; }
-    .step3-summary-value { font-size: 13px; color: #f0ece4; margin-top: 4px; font-weight: 500; }
-    .step3-section-label { font-size: 11px; letter-spacing: 0.08em; color: #666; text-transform: uppercase; margin-bottom: 10px; }
+    .step3-summary-label { font-size: 10px; letter-spacing: 0.12em; color: #4A4A4A; text-transform: uppercase; font-weight: 600; }
+    .step3-summary-value { font-size: 13px; color: #E8E2D9; margin-top: 4px; font-weight: 500; }
+    .step3-section-label { font-size: 10px; letter-spacing: 0.12em; color: #4A4A4A; text-transform: uppercase; margin-bottom: 10px; font-weight: 600; }
 
     /* ── Slot selecionado sólido ── */
-    .slot-btn { border-radius: 12px; padding: 12px 0; text-align: center; font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; transition: all .15s; }
-    .slot-btn.selected { background: #2563eb !important; border-color: #2563eb !important; color: #fff !important; }
+    .slot-btn { border-radius: 6px; padding: 13px 0; text-align: center; font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; transition: all .15s; letter-spacing: 0.02em; }
+    .slot-btn.selected { background: #E11D2F !important; border-color: #E11D2F !important; color: #fff !important; }
 
     /* ── Passo 5 — card resumo ── */
     .confirm-code { font-size: 11px; color: #666; font-family: 'Courier New', monospace; }
@@ -103,14 +170,19 @@
     /* ── Footer redesign ── */
     .footer-redesign {
       position: fixed; bottom: 0; left: 0; right: 0;
-      background: rgba(0,0,0,0.95);
-      border-top: 1px solid rgba(255,255,255,0.07);
+      background: rgba(12, 12, 12, 0.97);
+      border-top: 1px solid rgba(255,255,255,0.06);
     }
     .footer-redesign-inner {
-      padding: 14px 20px 16px;
-      text-align: center; font-size: 11px; color: #888; line-height: 1.5;
+      padding: 12px 20px 14px;
+      text-align: center;
+      font-size: 10px;
+      color: #4A4A4A;
+      line-height: 1.6;
+      letter-spacing: 0.03em;
     }
-    .footer-redesign a { color: #3b82f6; text-decoration: none; font-size: 11px; }
+    .footer-redesign a { color: #7A7A7A; text-decoration: none; font-size: 10px; transition: color .15s; }
+    .footer-redesign a:hover { color: #F5F5F5; }
 
     /* ── Passo 6: Notificação de confirmação ── */
     @keyframes slideDown {
@@ -125,8 +197,8 @@
     .confirm-toast {
       animation: slideDown 0.45s cubic-bezier(0.34,1.56,0.64,1) both;
       background: linear-gradient(135deg, #071f0f 0%, #0a2a14 100%);
-      border: 1px solid rgba(74,222,128,0.25);
-      border-radius: 18px;
+      border: 1px solid rgba(74, 222, 128, 0.20);
+      border-radius: 10px;
       overflow: hidden;
       position: relative;
     }
@@ -137,9 +209,10 @@
     }
     .confirm-toast-check {
       animation: checkPop 0.5s cubic-bezier(0.34,1.56,0.64,1) 0.2s both;
-      width: 44px; height: 44px; border-radius: 50%;
-      background: rgba(74,222,128,0.12);
-      border: 1px solid rgba(74,222,128,0.3);
+      width: 40px; height: 40px;
+      border-radius: 6px;
+      background: rgba(74,222,128,0.10);
+      border: 1px solid rgba(74,222,128,0.25);
       display: flex; align-items: center; justify-content: center;
       flex-shrink: 0;
     }
@@ -153,14 +226,26 @@
     }
 
     /* ── Passo 6: Produtos ── */
-    .prod-chip { flex-shrink: 0; padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: all .15s; white-space: nowrap; }
-    .prod-chip-active { background: #fff; color: #000; border-color: #fff; }
-    .prod-chip-inactive { background: transparent; color: #666; border-color: rgba(255,255,255,0.10); }
+    .prod-chip {
+      flex-shrink: 0;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+    .prod-chip-active { background: #E11D2F; color: #ffffff; border-color: #E11D2F; }
+    .prod-chip-inactive { background: transparent; color: #7A7A7A; border-color: rgba(255,255,255,0.10); }
 
     .prod-card {
-      background: #0e0e0e;
+      background: #141414;
       border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 16px;
+      border-radius: 8px;
       overflow: hidden;
       display: flex; flex-direction: column;
       transition: border-color 0.2s, transform 0.15s;
@@ -191,10 +276,15 @@
     .prod-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
     .prod-card-price { font-size: 14px; font-weight: 700; color: #ffffff; }
     .prod-card-btn {
-      font-size: 10px; font-weight: 600;
-      background: #052e16; color: #4ade80;
-      border: 1px solid rgba(74,222,128,0.25);
-      border-radius: 999px; padding: 4px 12px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: rgba(74, 222, 128, 0.06);
+      color: #4ade80;
+      border: 1px solid rgba(74, 222, 128, 0.20);
+      border-radius: 4px;
+      padding: 5px 10px;
       text-decoration: none; white-space: nowrap;
       transition: background 0.15s, border-color 0.15s;
     }
@@ -210,16 +300,77 @@
     /* ── CTA agendar novamente ── */
     .btn-reagendar {
       display: flex; align-items: center; justify-content: center; gap: 8px;
-      width: 100%; min-height: 52px; border-radius: 14px;
-      background: #cc1f1f; color: #fff; font-weight: 600; font-size: 15px;
-      border: none; cursor: pointer; transition: background 0.15s, transform 0.1s;
+      width: 100%;
+      min-height: 52px;
+      border-radius: 6px;
+      background: #E11D2F;
+      color: #fff;
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      border: none;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
       margin-top: 24px;
     }
-    .btn-reagendar:hover { background: #e53535; }
+    .btn-reagendar:hover { background: #C41526; }
     .btn-reagendar:active { transform: scale(0.98); }
+
+    /* Passo 2 — Cards barbeiro */
+    .barber-card-any {
+      width: 100%;
+      background: rgba(225, 29, 47, 0.06);
+      border: 1.5px solid rgba(225, 29, 47, 0.35);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 72px;
+      text-align: left;
+      transition: background .15s, border-color .15s;
+      margin-bottom: 10px;
+    }
+    .barber-card-any:hover {
+      background: rgba(225, 29, 47, 0.10);
+      border-color: rgba(225, 29, 47, 0.55);
+    }
+    .barber-card {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: #141414;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px;
+      padding: 14px 16px;
+      min-height: 72px;
+      margin-bottom: 8px;
+      transition: border-color .15s, background .15s;
+      text-align: left;
+    }
+    .barber-card:hover { border-color: rgba(255,255,255,0.18); background: #1C1C1C; }
+
+    /* CTA principal */
+    .btn-primary {
+      width: 100%;
+      min-height: 52px;
+      border-radius: 6px;
+      background: #E11D2F;
+      color: #ffffff;
+      font-family: 'Inter', sans-serif;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      border: none;
+      cursor: pointer;
+      transition: background .15s, transform .1s, opacity .15s;
+    }
+    .btn-primary:hover { background: #C41526; }
+    .btn-primary:active { transform: scale(0.985); }
+    .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
   </style>
 </head>
-<body class="bg-[#0a0a0a] text-[#fafafa] min-h-screen pb-28" x-data="agendamento()" x-cloak>
+<body class="text-[#fafafa] min-h-screen pb-28" x-data="agendamento()" x-cloak>
 
   <header class="fixed top-0 inset-x-0 z-50 bg-black/95 backdrop-blur border-b border-white/5">
     <div class="max-w-lg mx-auto header-inner">
@@ -228,12 +379,16 @@
     </div>
     <div class="max-w-lg mx-auto header-progress">
       <template x-for="i in 4" :key="i">
-        <div class="header-progress-seg" :style="passo >= i ? 'background:#fff' : 'background:rgba(255,255,255,0.10)'"></div>
+        <div class="header-progress-seg" :style="passo >= i ? 'background:#E11D2F' : 'background:rgba(255,255,255,0.10)'"></div>
       </template>
     </div>
     <div class="barber-pole"></div>
     <div class="max-w-lg mx-auto px-4 pb-2" x-show="passo > 1 && passo < 5" style="text-align:right">
-      <button type="button" @click="voltar()" class="text-sm text-white/70 hover:text-white transition">Voltar</button>
+      <button type="button" @click="voltar()"
+        class="flex items-center gap-1.5 text-xs font-medium text-[#7A7A7A] hover:text-[#F5F5F5] transition-colors py-1 justify-end w-full">
+        <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
+        Voltar
+      </button>
     </div>
   </header>
 
@@ -241,24 +396,26 @@
 
     <!-- Passo 1: Serviços -->
     <section x-show="passo === 1" x-transition.opacity>
-      <h1 class="text-xl font-bold mb-1">Escolha o serviço</h1>
+      <h1 style="font-family:'Bebas Neue',sans-serif; font-size:28px; letter-spacing:0.04em; color:#F5F5F5;" class="mb-1">
+        Escolha o Serviço
+      </h1>
       <p class="text-sm text-[#888] mb-4">Preços e duração estimada</p>
 
       <!-- Loading state -->
       <template x-if="carregando">
         <div class="flex flex-col gap-3">
-          <div class="h-8 bg-[#1a1a1a] rounded-full w-48 animate-pulse"></div>
-          <div class="h-20 bg-[#1a1a1a] rounded-2xl animate-pulse"></div>
-          <div class="h-20 bg-[#1a1a1a] rounded-2xl animate-pulse"></div>
-          <div class="h-20 bg-[#1a1a1a] rounded-2xl animate-pulse"></div>
+          <div class="h-8 bg-[#141414] rounded-sm w-48 animate-pulse"></div>
+          <div class="h-[72px] bg-[#141414] rounded-[8px] animate-pulse"></div>
+          <div class="h-[72px] bg-[#141414] rounded-[8px] animate-pulse"></div>
+          <div class="h-[72px] bg-[#141414] rounded-[8px] animate-pulse"></div>
         </div>
       </template>
 
       <!-- Erro ao carregar (sem serviços) -->
       <template x-if="!carregando && erro && servicos.length === 0">
-        <div class="bg-[#1a1a1a] border border-red-500/30 rounded-2xl p-4 text-center">
-          <p class="text-red-400 text-sm mb-3" x-text="erro"></p>
-          <button @click="init()" class="text-sm text-white border border-white/20 rounded-xl px-4 py-2">
+        <div class="bg-[#141414] border border-[#E11D2F]/30 rounded-[8px] p-4 text-center">
+          <p class="text-[#E11D2F] text-sm mb-3" x-text="erro"></p>
+          <button @click="init()" style="font-size:13px; color:#F5F5F5; border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px 16px;">
             Tentar novamente
           </button>
         </div>
@@ -293,16 +450,16 @@
               <button
                 type="button"
                 @click="escolherServico(s)"
-                class="w-full text-left bg-[#111] border border-white/7 rounded-2xl p-4 min-h-[72px] hover:border-white/20 hover:bg-[#1a1a1a] active:scale-[.98] transition-all">
+                class="svc-card">
                 <div class="svc-card-row">
                   <div class="flex-1">
-                    <div class="font-semibold text-[#f0ece4]" x-text="s.name"></div>
-                    <p class="text-xs text-[#666] mt-1.5" x-text="s.durationMinutes + ' min'"></p>
+                    <div style="font-size:15px; font-weight:600; color:#E8E2D9; line-height:1.3;" x-text="s.name"></div>
+                    <p style="font-size:12px; color:#7A7A7A; margin-top:6px;" x-text="s.durationMinutes + ' min'"></p>
                   </div>
                   <div class="flex items-center gap-3">
-                    <span class="font-bold text-white" x-text="formatPreco(s.price)"></span>
+                    <span style="font-size:16px; font-weight:700; color:#F5F5F5;" x-text="formatPreco(s.price)"></span>
                     <span class="svc-chevron">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                      <i data-lucide="chevron-right" class="w-4 h-4 text-[#4A4A4A]"></i>
                     </span>
                   </div>
                 </div>
@@ -315,17 +472,27 @@
 
     <!-- Passo 2: Barbeiro -->
     <section x-show="passo === 2" x-transition.opacity>
-      <h2 class="text-xl font-bold mb-1">Escolha o barbeiro</h2>
+      <h2 style="font-family:'Bebas Neue',sans-serif; font-size:28px; letter-spacing:0.04em; color:#F5F5F5;" class="mb-1">
+        Escolha o Barbeiro
+      </h2>
       <p class="text-sm text-[#888] mb-4">Recomendamos qualquer disponível</p>
       <button type="button" @click="barbeiroEscolhido = null; selecionarData(diasDisponiveis[0]?.iso); passo = 3"
-        class="w-full bg-white/5 border-2 border-white rounded-2xl p-4 mb-3 min-h-[72px] text-left hover:bg-white/10 transition">
-        <p class="font-semibold text-white">Qualquer barbeiro disponível</p>
-        <p class="text-xs text-[#999] mt-1">Primeiro horário livre entre a equipe</p>
+        class="barber-card-any">
+        <div class="flex items-center gap-3">
+          <div style="width:44px; height:44px; border-radius:6px; background:rgba(225,29,47,0.12); border:1px solid rgba(225,29,47,0.25); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            <i data-lucide="zap" style="width:18px; height:18px; color:#E11D2F;"></i>
+          </div>
+          <div>
+            <p style="font-weight:600; font-size:14px; color:#F5F5F5;">Qualquer barbeiro disponível</p>
+            <p style="font-size:12px; color:#7A7A7A; margin-top:3px;">Primeiro horário livre entre a equipe</p>
+          </div>
+        </div>
       </button>
       <template x-for="b in barbeiros" :key="b.id">
         <button type="button" @click="barbeiroEscolhido = b; selecionarData(diasDisponiveis[0]?.iso); passo = 3"
-          class="w-full flex items-center gap-3 bg-[#111] border border-white/7 rounded-2xl p-4 mb-2 min-h-[72px] hover:border-white/20 hover:bg-[#1a1a1a] transition">
-          <span class="w-12 h-12 rounded-full bg-[#252525] flex items-center justify-center text-lg font-bold text-white/60" x-text="iniciais(b.name)"></span>
+          class="barber-card">
+          <span style="width:44px; height:44px; border-radius:6px; background:#242424; border:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; color:#7A7A7A; flex-shrink:0; font-family:'Bebas Neue',sans-serif; letter-spacing:0.05em;"
+            x-text="iniciais(b.name)"></span>
           <div class="text-left">
             <p class="font-medium" x-text="b.name"></p>
             <p class="text-xs text-[#999]">Barbeiro profissional</p>
@@ -336,7 +503,9 @@
 
     <!-- Passo 3: Data e horário -->
     <section x-show="passo === 3" x-transition.opacity>
-      <h2 class="text-xl font-bold mb-1">Escolha data e horário</h2>
+      <h2 style="font-family:'Bebas Neue',sans-serif; font-size:28px; letter-spacing:0.04em; color:#F5F5F5;" class="mb-1">
+        Data &amp; Horário
+      </h2>
       <p class="text-sm text-[#888] mb-3">Disponibilidade em tempo real</p>
 
       <!-- Resumo do que foi escolhido -->
@@ -349,7 +518,12 @@
             <span x-text="barbeiroEscolhido?.name || 'Qualquer'"></span>
           </div>
         </div>
-        <button type="button" @click="passo = 2" class="text-xs text-[#888] hover:text-white transition">Trocar</button>
+        <button type="button" @click="passo = 2"
+          style="font-size:11px; color:#7A7A7A; background:transparent; border:1px solid rgba(255,255,255,0.10); border-radius:4px; padding:4px 10px; transition:color .15s, border-color .15s;"
+          onmouseover="this.style.color='#F5F5F5'; this.style.borderColor='rgba(255,255,255,0.25)'"
+          onmouseout="this.style.color='#7A7A7A'; this.style.borderColor='rgba(255,255,255,0.10)'">
+          Trocar
+        </button>
       </div>
 
       <!-- Label DATA -->
@@ -359,12 +533,12 @@
       <div class="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide mb-1">
         <template x-for="d in diasDisponiveis" :key="d.iso">
           <button type="button" @click="selecionarData(d.iso)"
-            class="shrink-0 min-w-[4.5rem] py-3 px-2 rounded-2xl border text-center min-h-[48px] transition"
-            :class="dataEscolhida === d.iso
-              ? 'border-white bg-white/10 text-white'
-              : 'border-white/10 bg-[#111] text-[#888]'">
-            <p class="text-[10px] uppercase text-[#999]" x-text="d.dow"></p>
-            <p class="font-semibold text-sm" x-text="d.label"></p>
+            style="flex-shrink:0; min-width:4.5rem; padding:12px 8px; border-radius:6px; text-align:center; min-height:60px; transition:all .15s; cursor:pointer;"
+            :style="dataEscolhida === d.iso
+              ? 'border:1.5px solid #E11D2F; background:rgba(225,29,47,0.08); color:#F5F5F5;'
+              : 'border:1px solid rgba(255,255,255,0.08); background:#141414; color:#7A7A7A;'">
+            <p style="font-size:9px; text-transform:uppercase; letter-spacing:0.10em; color:inherit;" x-text="d.dow"></p>
+            <p style="font-size:14px; font-weight:700; margin-top:3px; color:inherit;" x-text="d.label"></p>
           </button>
         </template>
       </div>
@@ -377,10 +551,10 @@
       </div>
 
       <template x-if="carregandoSlots">
-        <p class="text-center text-[#888] py-6 text-sm">Buscando horários…</p>
+        <p class="text-center py-6 text-sm" style="color:#7A7A7A;">Buscando horários…</p>
       </template>
       <template x-if="!carregandoSlots && dataEscolhida && slots.length === 0">
-        <p class="text-center text-[#888] py-6 text-sm">Nenhum horário livre neste dia. Tente outra data.</p>
+        <p class="text-center py-6 text-sm" style="color:#7A7A7A;">Nenhum horário livre neste dia. Tente outra data.</p>
       </template>
       <div class="grid grid-cols-3 gap-2" x-show="slots.length">
         <template x-for="sl in slots" :key="sl.start + (sl.staffId||'')">
@@ -396,30 +570,37 @@
 
     <!-- Passo 4: Dados -->
     <section x-show="passo === 4" x-transition.opacity>
-      <h2 class="text-xl font-bold mb-1">Seus dados</h2>
+      <h2 style="font-family:'Bebas Neue',sans-serif; font-size:28px; letter-spacing:0.04em; color:#F5F5F5;" class="mb-1">
+        Seus Dados
+      </h2>
       <p class="text-sm text-[#888] mb-4">Enviamos a confirmação no WhatsApp</p>
-      <div class="bg-[#111] rounded-2xl p-4 mb-4 border border-white/10 text-sm space-y-1">
-        <p><span class="text-[#888]">Serviço:</span> <span x-text="servicoEscolhido?.name"></span></p>
-        <p><span class="text-[#888]">Horário:</span> <span x-text="resumoHorario()"></span></p>
-        <p x-show="slotEscolhido?.staffName"><span class="text-[#888]">Barbeiro:</span> <span x-text="slotEscolhido?.staffName"></span></p>
+      <div style="background:#141414; border-radius:8px; padding:14px 16px; margin-bottom:16px; border:1px solid rgba(255,255,255,0.08); font-size:13px;">
+        <p><span style="color:#7A7A7A;">Serviço:</span> <span style="color:#E8E2D9;" x-text="servicoEscolhido?.name"></span></p>
+        <p><span style="color:#7A7A7A;">Horário:</span> <span style="color:#E8E2D9;" x-text="resumoHorario()"></span></p>
+        <p x-show="slotEscolhido?.staffName"><span style="color:#7A7A7A;">Barbeiro:</span> <span style="color:#E8E2D9;" x-text="slotEscolhido?.staffName"></span></p>
       </div>
       <label class="block mb-3">
-        <span class="text-xs text-[#888] uppercase tracking-wide">Nome completo</span>
+        <span style="font-size:10px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:#7A7A7A;">
+          Nome completo
+        </span>
         <input type="text" x-model="nome" required autocomplete="name"
-          class="mt-1 w-full bg-[#111] border border-white/10 rounded-2xl px-4 py-3 min-h-[48px] outline-none transition">
+          class="mt-1">
       </label>
       <label class="block mb-4">
-        <span class="text-xs text-[#888] uppercase tracking-wide">WhatsApp</span>
+        <span style="font-size:10px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:#7A7A7A;">
+          WhatsApp
+        </span>
         <input type="tel" inputmode="numeric" x-model="whatsapp" @input="mascararWhatsapp()"
           placeholder="(47) 99999-9999" autocomplete="tel"
-          class="mt-1 w-full bg-[#111] border border-white/10 rounded-2xl px-4 py-3 min-h-[48px] outline-none transition">
+          class="mt-1">
       </label>
-      <div x-show="erro" x-transition class="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-3">
-        <svg class="shrink-0 mt-0.5" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <p class="text-red-400 text-sm" x-text="erro"></p>
+      <div x-show="erro" x-transition class="flex items-start gap-2 mb-3"
+        style="background:rgba(225,29,47,0.08); border:1px solid rgba(225,29,47,0.25); border-radius:6px; padding:12px;">
+        <i data-lucide="alert-circle" style="width:14px; height:14px; color:#E11D2F; flex-shrink:0; margin-top:1px;"></i>
+        <p style="font-size:13px; color:#F87171;" x-text="erro"></p>
       </div>
       <button type="button" @click="confirmar()" :disabled="enviando || !formValido()"
-        class="w-full min-h-[52px] rounded-2xl bg-[#cc1f1f] text-white font-semibold text-base disabled:opacity-40 transition active:scale-[.98] hover:bg-[#e53535]">
+        class="btn-primary">
         <span x-text="enviando ? 'Confirmando…' : 'Confirmar agendamento'"></span>
       </button>
     </section>
@@ -468,7 +649,9 @@
 
       <!-- Cabeçalho marketplace -->
       <div class="mb-4">
-        <h2 class="text-lg font-bold mb-0.5">Produtos da barbearia</h2>
+        <h2 style="font-family:'Bebas Neue',sans-serif; font-size:24px; letter-spacing:0.04em; color:#F5F5F5;" class="mb-0.5">
+          Produtos da Barbearia
+        </h2>
         <p class="text-[#555] text-sm">Leve para casa o que usamos aqui.</p>
       </div>
 
@@ -507,7 +690,7 @@
 
       <!-- CTA reagendar -->
       <button type="button" @click="reset()" class="btn-reagendar">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
+        <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
         Fazer outro agendamento
       </button>
     </section>
@@ -775,5 +958,6 @@
       }))
     })
   </script>
+  <script>lucide.createIcons();</script>
 </body>
 </html>
