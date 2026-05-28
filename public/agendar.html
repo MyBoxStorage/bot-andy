@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿﻿﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -489,7 +489,8 @@
         <template x-for="p in produtosFiltrados" :key="p.nome">
           <a :href="p.link" target="_blank" class="prod-card">
             <div class="prod-card-img">
-              <svg width="36" height="36" viewBox="0 0 48 48" fill="none" stroke="#222" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg>
+              <img :src="`/produtos/` + p.img + `.webp`" :alt="p.nome" loading="lazy" style="width:100%;height:100%;object-fit:cover;border-radius:inherit" @error="$el.style.display=`none`;$el.nextElementSibling.style.display=`block`">
+              <svg style="display:none" width="36" height="36" viewBox="0 0 48 48" fill="none" stroke="#222" stroke-width="1.5"><rect x="8" y="14" width="32" height="28" rx="3"/><path d="M16 14v-3a8 8 0 0116 0v3"/></svg>
               <span class="prod-card-badge" :class="'badge-' + p.cat" x-text="labelProdCat(p.cat)"></span>
             </div>
             <div class="prod-card-body">
@@ -537,26 +538,26 @@
 
     const WA = '5547000000001'
     const PRODUTOS = [
-      { nome: 'Cera Incolor Two Brothers 70g',       desc: 'Modelagem longa duração, fixação alta.',       preco: 42.90, cat: 'cera'    },
-      { nome: 'Cera Modeladora Black Filder Cut 150g',desc: 'Pigmentação preta temporária.',                preco: 45.00, cat: 'cera'    },
-      { nome: 'Fox Cera Modeladora Matte 78g',        desc: 'Fixação poderosa, efeito matte.',              preco: 45.90, cat: 'cera'    },
-      { nome: 'Fox Cera Modeladora UV 80g',           desc: 'Alta fixação com proteção UV.',                preco: 47.90, cat: 'cera'    },
-      { nome: 'Fox Pasta Laranja 80g',                desc: 'Fixação equilibrada, matte flexível.',         preco: 44.90, cat: 'cera'    },
-      { nome: 'Fox Wax Efeito Seco 80g',              desc: 'Acabamento matte, sem brilho.',                preco: 46.90, cat: 'cera'    },
-      { nome: 'Pasta Premium Fox For Men 80g',        desc: 'Extra forte, seco e natural.',                 preco: 44.90, cat: 'cera'    },
-      { nome: 'Piratas Pasta Caramelo 150g',          desc: 'Modelagem premium, aroma caramelo.',           preco: 54.90, cat: 'cera'    },
-      { nome: 'Pomada Matte Caramelo Filder Cut 160g',desc: 'Acabamento opaco e natural.',                  preco: 45.00, cat: 'cera'    },
-      { nome: 'Pomada Matte Undercut Mak Line 150g',  desc: 'Efeito matte extra forte.',                    preco: 45.00, cat: 'cera'    },
-      { nome: 'Pomada Efeito Perola Filder Cut 160g', desc: 'Brilho perolado, aspecto molhado.',            preco: 45.00, cat: 'cera'    },
-      { nome: 'Pomada Efeito Teia Undercut 130g',     desc: 'Modela, hidrata, controla frizz.',             preco: 45.00, cat: 'cera'    },
-      { nome: 'Two Brothers Pomada Creme Seca 70g',   desc: 'Fixação forte, efeito seco.',                  preco: 48.90, cat: 'cera'    },
-      { nome: 'Infinity Balm para Barba 120g',        desc: 'Hidratante, reduz coceira.',                   preco: 52.90, cat: 'barba'   },
-      { nome: 'Element Oleo de Barba 30ml',           desc: 'Repara e hidrata a barba.',                    preco: 49.90, cat: 'barba'   },
-      { nome: 'Dom Pelo Minoxidil 15% 120ml',         desc: 'Estimula crescimento de barba e cabelo.',      preco: 89.90, cat: 'barba'   },
-      { nome: 'Dom Pelo Shampoo Anticaspa 250ml',     desc: 'Combate caspa, refresca o couro.',             preco: 36.90, cat: 'shampoo' },
-      { nome: 'Dom Pelo Shampoo Escurecedor 250ml',   desc: 'Escurece fios brancos em 5min.',               preco: 42.90, cat: 'shampoo' },
-      { nome: 'Dom Pelo Shampoo Minoxidil 3em1 250ml',desc: 'Cresce, fortalece e hidrata.',                 preco: 59.90, cat: 'shampoo' },
-      { nome: 'Shampoo Hidratante Vision 200ml',      desc: 'Limpeza profunda, reduz caspa.',               preco: 39.90, cat: 'shampoo' },
+      { nome: 'Cera Incolor Two Brothers 70g', img: 'cera-incolor-two-brothers',       desc: 'Modelagem longa duração, fixação alta.',       preco: 42.90, cat: 'cera'    },
+      { nome: 'Cera Modeladora Black Filder Cut 150g', img: 'pomada-black',desc: 'Pigmentação preta temporária.',                preco: 45.00, cat: 'cera'    },
+      { nome: 'Fox Cera Modeladora Matte 78g', img: 'fox-cera-matte',        desc: 'Fixação poderosa, efeito matte.',              preco: 45.90, cat: 'cera'    },
+      { nome: 'Fox Cera Modeladora UV 80g', img: 'fox-cera-uv',           desc: 'Alta fixação com proteção UV.',                preco: 47.90, cat: 'cera'    },
+      { nome: 'Fox Pasta Laranja 80g', img: 'fox-pasta-orange',                desc: 'Fixação equilibrada, matte flexível.',         preco: 44.90, cat: 'cera'    },
+      { nome: 'Fox Wax Efeito Seco 80g', img: 'fox-wax-toque-seco',              desc: 'Acabamento matte, sem brilho.',                preco: 46.90, cat: 'cera'    },
+      { nome: 'Pasta Premium Fox For Men 80g', img: 'pasta-premium-fox',        desc: 'Extra forte, seco e natural.',                 preco: 44.90, cat: 'cera'    },
+      { nome: 'Piratas Pasta Caramelo 150g', img: 'pasta-piratas-caramelo',          desc: 'Modelagem premium, aroma caramelo.',           preco: 54.90, cat: 'cera'    },
+      { nome: 'Pomada Matte Caramelo Filder Cut 160g', img: 'pomada-matte-caramelo',desc: 'Acabamento opaco e natural.',                  preco: 45.00, cat: 'cera'    },
+      { nome: 'Pomada Matte Undercut Mak Line 150g', img: 'pomada-matte-undercut',  desc: 'Efeito matte extra forte.',                    preco: 45.00, cat: 'cera'    },
+      { nome: 'Pomada Efeito Perola Filder Cut 160g', img: 'pomada-perola', desc: 'Brilho perolado, aspecto molhado.',            preco: 45.00, cat: 'cera'    },
+      { nome: 'Pomada Efeito Teia Undercut 130g', img: 'pomada-teia',     desc: 'Modela, hidrata, controla frizz.',             preco: 45.00, cat: 'cera'    },
+      { nome: 'Two Brothers Pomada Creme Seca 70g', img: 'pomada-two-brothers',   desc: 'Fixação forte, efeito seco.',                  preco: 48.90, cat: 'cera'    },
+      { nome: 'Infinity Balm para Barba 120g', img: 'creme-barba-infinity',        desc: 'Hidratante, reduz coceira.',                   preco: 52.90, cat: 'barba'   },
+      { nome: 'Element Oleo de Barba 30ml', img: 'oleo-barba-element',           desc: 'Repara e hidrata a barba.',                    preco: 49.90, cat: 'barba'   },
+      { nome: 'Dom Pelo Minoxidil 15% 120ml', img: 'minoxidil-dom-pelo',         desc: 'Estimula crescimento de barba e cabelo.',      preco: 89.90, cat: 'barba'   },
+      { nome: 'Dom Pelo Shampoo Anticaspa 250ml', img: 'shampoo-anticaspa-dom-pelo',     desc: 'Combate caspa, refresca o couro.',             preco: 36.90, cat: 'shampoo' },
+      { nome: 'Dom Pelo Shampoo Escurecedor 250ml', img: 'shampoo-escurecedor-dom-pelo',   desc: 'Escurece fios brancos em 5min.',               preco: 42.90, cat: 'shampoo' },
+      { nome: 'Dom Pelo Shampoo Minoxidil 3em1 250ml', img: 'shampoo-minoxidil-dom-pelo',desc: 'Cresce, fortalece e hidrata.',                 preco: 59.90, cat: 'shampoo' },
+      { nome: 'Shampoo Hidratante Vision 200ml', img: 'shampoo-hidratante-vision',      desc: 'Limpeza profunda, reduz caspa.',               preco: 39.90, cat: 'shampoo' },
     ].map(p => ({
       ...p,
       link: `https://wa.me/${WA}?text=${encodeURIComponent('Olá! Quero comprar: ' + p.nome + ' (R$ ' + p.preco.toFixed(2) + ')')}`
