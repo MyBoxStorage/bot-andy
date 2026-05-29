@@ -111,12 +111,13 @@ export function createExpressApp() {
 
   // CORS — permite que bot-andy.vercel.app acesse a API do servidor local via ngrok
   app.use((req, res, next) => {
-    const allowed = ['https://bot-andy.vercel.app', 'http://localhost:21466']
+    const allowedOrigins = (process.env.PUBLIC_BOOKING_ORIGINS || 'https://bot-andy.vercel.app')
+      .split(',').map(s => s.trim())
     const origin = req.headers.origin
-    if (origin && allowed.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin)
+    if (!origin || allowedOrigins.some(o => origin === o || origin.startsWith(o))) {
+      res.setHeader('Access-Control-Allow-Origin', origin || '*')
     } else {
-      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Access-Control-Allow-Origin', allowedOrigins[0])
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, ngrok-skip-browser-warning, Authorization')
@@ -343,12 +344,15 @@ export async function sendProactiveMessage(whatsappNumber, text) {
 }
 
 export async function startWhatsApp() {
+  const devWhitelist = (process.env.DEV_WHITELIST || '').split(',').map(s => s.trim()).filter(Boolean)
+
   registerSender(async (numero, texto) => {
     if (!client) return false
     try {
+      const isDevNumber = devWhitelist.includes(numero)
       const limite  = Number(process.env.MAX_DAILY_ACTIVE_MESSAGES || 5)
       const atual   = getMensagensAtivasHoje(numero)
-      if (atual >= limite) { warn(`Limite diário atingido para ${numero}`); return false }
+      if (!isDevNumber && atual >= limite) { warn(`Limite diário atingido para ${numero}`); return false }
       await client.sendText(numero, texto)
       incrementarMensagemAtiva(numero)
       logMensagem(numero, 'saida', texto, 'texto')
@@ -357,6 +361,8 @@ export async function startWhatsApp() {
       return false
     }
   })
+
+  const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined
 
   return wppconnect.create({
     session:     SESSION,
@@ -368,7 +374,8 @@ export async function startWhatsApp() {
     statusFind:  (statusSession) => { log('WPPConnect status:', statusSession) },
     headless:    true,
     logQR:       true,
-    browserArgs: ['--no-sandbox', '--disable-setuid-sandbox'],
+    browserArgs: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    ...(executablePath && { puppeteerOptions: { executablePath } }),
   }).then((c) => {
     client = c
     log('WhatsApp conectado — aguardando mensagens')
