@@ -1,0 +1,9 @@
+[build]
+builder = "dockerfile"
+
+[deploy]
+startCommand = "node demo.mjs"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+healthcheckPath = "/"
+healthcheckTimeout = 300

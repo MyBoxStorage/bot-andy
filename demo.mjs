@@ -13,13 +13,13 @@ async function main() {
 
   try {
     await startWhatsApp()
-
-  // Inicia sistema de lembretes automáticos
-  initReminders()
   } catch (err) {
     logError('Erro ao conectar WhatsApp:', err)
     process.exit(1)
   }
+
+  // Inicia sistema de lembretes automáticos
+  initReminders()
 }
 
 main()
