@@ -245,11 +245,31 @@ export async function askClaude(userMessage, whatsappNumber) {
   const cliente  = getCliente(whatsappNumber)
   const conversa = getConversa(whatsappNumber)
 
+  // ── Limite de conversas simultâneas (controla pico de custo) ─────
+  const MAX_CONVERSAS = Number(process.env.MAX_CONVERSAS_SIMULTANEAS || 20)
+  const ativasAgora = getConversasAtivasCount()
+  if (ativasAgora > MAX_CONVERSAS) {
+    log(`Limite de ${MAX_CONVERSAS} conversas simultâneas atingido. Descartando mensagem de ${whatsappNumber}.`)
+    return { text: 'Estamos com muita demanda agora. Tenta de novo em alguns minutos! 🙏', error: false }
+  }
+
+  // Dev whitelist: reset de histórico a cada 10 minutos (sem apagar perfil/agendamentos)
+  const devWhitelistClaude = (process.env.DEV_WHITELIST || '').split(',').map(s => s.trim()).filter(Boolean)
+  const isDevNumberClaude = devWhitelistClaude.includes(whatsappNumber)
+  if (isDevNumberClaude && conversa.ultima_atividade) {
+    const minutosInativo = (Date.now() - new Date(conversa.ultima_atividade).getTime()) / 60000
+    if (minutosInativo > 10) {
+      conversa.historico = []
+      conversa.resumo = null
+      log(`🔧 [DEV] Histórico resetado (${minutosInativo.toFixed(1)}min inativo) para ${whatsappNumber}`)
+    }
+  }
+
   // Expira histórico se última atividade > 8h (cliente "voltou do nada")
   // Perfil/nome/agendamentos passados PERSISTEM — só o histórico de mensagens é zerado.
   // 8h evita que termos relativos como "amanhã" da véspera vazem para o dia seguinte.
   const HORAS_EXPIRACAO_HISTORICO = 8
-  if (conversa.ultima_atividade) {
+  if (!isDevNumberClaude && conversa.ultima_atividade) {
     const horasInativo = (Date.now() - new Date(conversa.ultima_atividade).getTime()) / 3600000
     if (horasInativo > HORAS_EXPIRACAO_HISTORICO) {
       conversa.historico = []
@@ -262,7 +282,8 @@ export async function askClaude(userMessage, whatsappNumber) {
 
   // Injeta timestamp da mensagem atual para o modelo ter noção de tempo entre turnos.
   // Sem isso, "amanhã" da véspera pode parecer "amanhã" de hoje quando o cliente volta horas depois.
-  const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })
+  const agoraBRT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
+  const agora = agoraBRT.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
   const userMessageComTimestamp = `[${agora}] ${userMessage}`
 
   let messagesArray = [...historicoAtual, { role: 'user', content: userMessageComTimestamp }]
@@ -293,7 +314,8 @@ export async function askClaude(userMessage, whatsappNumber) {
   let precisouHandoff = false
   let ultimoAgendamentoCriado = null
 
-  for (let round = 0; round < 6; round++) {
+  const MAX_ROUNDS = Number(process.env.MAX_CLAUDE_ROUNDS || 5)
+  for (let round = 0; round < MAX_ROUNDS; round++) {
     const response = await fetchClaudeComRetry({
       model: MODEL,
       max_tokens: MAX_TOKENS,
@@ -325,7 +347,7 @@ export async function askClaude(userMessage, whatsappNumber) {
       // 🛡️ Defesa anti-mentira: detecta se o bot anunciou sucesso sem ter chamado criar_agendamento.
       // Regra: só dispara se a palavra de fechamento aparecer em uma FRASE AFIRMATIVA (sem "?" depois).
       // Textos como "Fechado, X com Y. Vou reservar?" são perguntas legítimas pedindo última confirmação.
-      const FECHAMENTO_PALAVRAS = /\b(fechad[oa]|agendad[oa]|confirmad[oa]|marcad[oa]|reservad[oa]|te espero|t[ôo] te esperando)\b/i
+      const FECHAMENTO_PALAVRAS = /\b(agendad[oa]|confirmad[oa]|marcad[oa]|reservad[oa]|te espero|t[ôo] te esperando)\b/i
       const chamouTool = toolsChamadas.includes('criar_agendamento')
       let anunciouSucesso = false
       if (!chamouTool && FECHAMENTO_PALAVRAS.test(finalText)) {

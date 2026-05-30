@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { existsSync, rmSync, readdirSync } from 'fs'
+import { existsSync, rmSync, readdirSync, lstatSync } from 'fs'
 import { services, products } from './src/config.mjs'
 import { initDb } from './src/db.mjs'
 import { log, error as logError } from './src/logger.mjs'
@@ -9,17 +9,32 @@ import { initReminders } from './src/reminders.mjs'
 const RECONNECT_DELAY_MS = 15_000
 const SESSION = process.env.WPP_SESSION || 'andy-prod'
 
-// Remove lock files do Chromium que ficam presos entre deploys
+// Remove lock files do Chromium que ficam presos entre deploys.
+// No Linux, SingletonLock/Cookie/Socket são SYMLINKS apontando para o hostname
+// do container anterior. existsSync() retorna false para symlink quebrado, por
+// isso usamos lstatSync (que enxerga o symlink em si, não o alvo) para detectar
+// e remover incondicionalmente.
 function limparLockChromium() {
+  const baseDir = process.env.WPP_USER_DATA_DIR || `/app/tokens/${SESSION}`
   const locks = [
-    `/app/tokens/${SESSION}/SingletonLock`,
-    `/app/tokens/${SESSION}/SingletonCookie`,
-    `/app/tokens/${SESSION}/SingletonSocket`,
+    'SingletonLock',
+    'SingletonCookie',
+    'SingletonSocket',
+    'DevToolsActivePort',
   ]
-  for (const f of locks) {
-    if (existsSync(f)) {
-      rmSync(f, { force: true })
+  for (const nome of locks) {
+    const f = `${baseDir}/${nome}`
+    try {
+      // lstatSync lança se não existir NADA (nem symlink quebrado).
+      // Se chegou aqui, existe algo (arquivo ou symlink) — remove.
+      lstatSync(f)
+      rmSync(f, { force: true, recursive: true })
       log(`🔓 Lock removido: ${f}`)
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        log(`⚠️ Falha ao remover lock ${f}: ${err.message}`)
+      }
+      // ENOENT = não existe, ignora silenciosamente
     }
   }
 }
@@ -44,15 +59,23 @@ function diagnosticarVolume() {
   }
 }
 
+const MAX_CONNECT_ATTEMPTS = Number(process.env.MAX_CONNECT_ATTEMPTS || 5)
+
 async function connectWhatsApp() {
-  while (true) {
+  let tentativa = 0
+  while (tentativa < MAX_CONNECT_ATTEMPTS) {
+    tentativa++
     try {
       limparLockChromium()
       await startWhatsApp()
       log('WhatsApp conectado com sucesso.')
       return
     } catch (err) {
-      logError('Erro ao conectar WhatsApp (vai tentar novamente):', err.message)
+      logError(`Erro ao conectar WhatsApp (tentativa ${tentativa}/${MAX_CONNECT_ATTEMPTS}):`, err.message)
+      if (tentativa >= MAX_CONNECT_ATTEMPTS) {
+        logError('Limite de tentativas atingido. Encerrando processo para o Railway reiniciar o container limpo.')
+        process.exit(1)
+      }
       log(`Aguardando ${RECONNECT_DELAY_MS / 1000}s antes de reconectar...`)
       await new Promise(resolve => setTimeout(resolve, RECONNECT_DELAY_MS))
     }

@@ -109,6 +109,28 @@ export function createExpressApp() {
   })
 
 
+  // ── Rate limit global — protege contra abuso e custos inesperados ─
+  const _rlWindowMs = 60_000 // janela de 1 minuto
+  const _rlMap = new Map()
+  app.use((req, res, next) => {
+    // Só aplica nas rotas da API pública (não aplica em /qr e /)
+    if (!req.path.startsWith('/api/')) return next()
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown'
+    const now = Date.now()
+    const entry = _rlMap.get(ip) || { count: 0, windowStart: now }
+    if (now - entry.windowStart > _rlWindowMs) {
+      entry.count = 0
+      entry.windowStart = now
+    }
+    entry.count++
+    _rlMap.set(ip, entry)
+    if (entry.count > 60) { // máximo 60 requests/min por IP
+      res.status(429).json({ erro: 'Muitas requisições. Tente novamente em breve.' })
+      return
+    }
+    next()
+  })
+
   // CORS — permite que bot-andy.vercel.app acesse a API do servidor local via ngrok
   app.use((req, res, next) => {
     const allowedOrigins = (process.env.PUBLIC_BOOKING_ORIGINS || 'https://bot-andy.vercel.app')
@@ -167,6 +189,17 @@ async function processarMensagem(message) {
   const rl = checarRateLimit(userPhone, 20)
   if (!rl.permitido) {
     log(`Rate limit atingido pra ${userPhone}`)
+    return
+  }
+
+  // ── Limite diário de mensagens por número (protege custo API) ─────
+  const MAX_MSG_DIA = Number(process.env.MAX_MSG_DIA_POR_NUMERO || 50)
+  const _msgKey = `msg_dia_${userPhone}_${new Date().toISOString().slice(0, 10)}`
+  if (!processarMensagem._msgContadores) processarMensagem._msgContadores = new Map()
+  const _msgCount = (processarMensagem._msgContadores.get(_msgKey) || 0) + 1
+  processarMensagem._msgContadores.set(_msgKey, _msgCount)
+  if (_msgCount > MAX_MSG_DIA) {
+    log(`Limite diário de ${MAX_MSG_DIA} mensagens atingido para ${userPhone}`)
     return
   }
 
@@ -363,9 +396,15 @@ export async function startWhatsApp() {
   })
 
   const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined
+  const folderNameToken = process.env.WPP_TOKENS_DIR || path.resolve(process.cwd(), 'tokens')
+  const userDataDir = process.env.WPP_USER_DATA_DIR || path.join(folderNameToken, SESSION)
 
   return wppconnect.create({
-    session:     SESSION,
+    session:         SESSION,
+    folderNameToken: folderNameToken,
+    useChrome:       false,
+    autoClose:       0,
+    disableWelcome:  true,
     catchQR:     (base64Qr, asciiQR) => {
       log(`QR Code gerado — http://localhost:${PORT}/qr`)
       console.log(asciiQR)
@@ -375,7 +414,10 @@ export async function startWhatsApp() {
     headless:    true,
     logQR:       true,
     browserArgs: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    ...(executablePath && { puppeteerOptions: { executablePath } }),
+    puppeteerOptions: {
+      userDataDir,
+      ...(executablePath && { executablePath }),
+    },
   }).then((c) => {
     client = c
     log('WhatsApp conectado — aguardando mensagens')

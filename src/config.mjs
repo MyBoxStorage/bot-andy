@@ -3,7 +3,7 @@
  *  Edite aqui sem mexer no resto do código.
  * ================================================================ */
 
-export const SESSION  = process.env.WPP_SESSION || 'temesa'
+export const SESSION  = process.env.WPP_SESSION || 'andy-prod'
 export const PORT     = Number(process.env.PORT  || 21466)
 export const timezone = 'America/Sao_Paulo'
 
@@ -14,7 +14,7 @@ export const business = {
   city:           'Balneário Camboriú',
   state:          'SC',
   address:        'Rua 900, nº 41 – Antigo China Center',
-  phone:          '(47) 99999-9999',
+  phone:          '(47) 99304-4942',
   paymentMethods: ['Pix', 'cartão', 'dinheiro'],
   instagram:      '@andynaregua',
 }

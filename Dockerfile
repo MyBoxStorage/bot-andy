@@ -38,6 +38,6 @@ COPY . .
 
 RUN mkdir -p data tokens
 
-EXPOSE 8080
+EXPOSE 21466
 
 CMD ["node", "demo.mjs"]
