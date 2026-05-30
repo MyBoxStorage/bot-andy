@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { existsSync, rmSync } from 'fs'
+import { existsSync, rmSync, readdirSync } from 'fs'
 import { services, products } from './src/config.mjs'
 import { initDb } from './src/db.mjs'
 import { log, error as logError } from './src/logger.mjs'
@@ -24,6 +24,26 @@ function limparLockChromium() {
   }
 }
 
+// DIAGNÓSTICO TEMPORÁRIO — remover após confirmar o caminho
+function diagnosticarVolume() {
+  const caminhos = [
+    '/app/tokens',
+    '/app/data',
+    '/var/lib/containers/railwayapp',
+  ]
+  for (const c of caminhos) {
+    if (existsSync(c)) {
+      try {
+        log(`📁 Existe: ${c} → ${JSON.stringify(readdirSync(c))}`)
+      } catch (e) {
+        log(`📁 Existe mas sem permissão: ${c}`)
+      }
+    } else {
+      log(`❌ Não existe: ${c}`)
+    }
+  }
+}
+
 async function connectWhatsApp() {
   while (true) {
     try {
@@ -40,6 +60,7 @@ async function connectWhatsApp() {
 }
 
 async function main() {
+  diagnosticarVolume()
   initDb({ services, products })
   const app = createExpressApp()
   startHttpServer()
